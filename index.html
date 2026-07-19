@@ -1,0 +1,2289 @@
+import React, { useState, useRef, useEffect } from "react";
+import {
+  ClipboardList, Zap, Award, Target, Users, AlertTriangle, ClipboardCheck,
+  StickyNote, ListOrdered, PenTool, Gauge, Smile, Heart, TrendingUp,
+  NotebookPen, Plus, Trash2, Circle, X as XIcon, Eraser, Shuffle,
+  ArrowUpRight, MousePointer2, RotateCcw, Save, ChevronUp, ChevronDown, Activity, Dumbbell,
+  Edit3, Undo2, Radio, RefreshCw, LogOut, Minus, Calendar, PersonStanding, Home, Plane, User,
+} from "lucide-react";
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from "recharts";
+
+/* ---------------------------------- tokens ---------------------------------- */
+
+const C = {
+  bg: "#131F19",
+  bg2: "#0E1712",
+  panel: "#1C2B22",
+  panel2: "#24382C",
+  panel3: "#2C4234",
+  chalk: "#EDEAE0",
+  chalkDim: "#AAB8A6",
+  chalkFaint: "rgba(237,234,224,0.45)",
+  amber: "#E0872C",
+  amberDim: "#B96C22",
+  amberInk: "#241505",
+  sage: "#79A07A",
+  red: "#C4453A",
+  line: "rgba(237,234,224,0.14)",
+};
+
+let idCounter = 1;
+const uid = () => idCounter++;
+
+/* ---------------------------------- data helpers ---------------------------------- */
+
+function addItem(setItems, text) {
+  if (!text.trim()) return;
+  setItems((items) => [...items, { id: uid(), text: text.trim(), done: false }]);
+}
+function toggleItem(setItems, id) {
+  setItems((items) => items.map((i) => (i.id === id ? { ...i, done: !i.done } : i)));
+}
+function removeItem(setItems, id) {
+  setItems((items) => items.filter((i) => i.id !== id));
+}
+function createDiagram(name, category = "offense") {
+  return { id: uid(), name, category, markers: [], lines: [] };
+}
+const DRILL_CATEGORIES = [
+  { key: "dribbling", label: "Dribbling", color: "sage" },
+  { key: "shooting", label: "Shooting", color: "amber" },
+  { key: "passing", label: "Passing", color: "sage" },
+  { key: "rebounding", label: "Rebounding", color: "red" },
+  { key: "offense", label: "Offense", color: "amber" },
+  { key: "defense", label: "Defense", color: "red" },
+  { key: "inbound", label: "Inbound / Tip-off", color: "sage" },
+  { key: "press", label: "Press / Press Break", color: "red" },
+  { key: "conditioning", label: "Conditioning", color: "dim" },
+];
+
+function defaultDrills() {
+  return [
+    { id: uid(), name: "Stationary Ball Handling", category: "dribbling", duration: 5, description: "Pound dribbles, crossovers, and figure-8s between the legs while standing in place.", beginnerTip: "Slow the pace and watch the ball until control improves.", advancedTip: "Add a tennis-ball toss with the off hand, or close your eyes for a few reps." },
+    { id: uid(), name: "Two-Ball Dribbling", category: "dribbling", duration: 6, description: "Dribble two balls at once to build control and rhythm in both hands.", beginnerTip: "Start with both balls bouncing together before alternating.", advancedTip: "Add movement — dribble both balls while jogging the length of the floor." },
+    { id: uid(), name: "Form Shooting", category: "shooting", duration: 6, description: "Close-range one-hand shooting focused on elbow alignment and follow-through.", beginnerTip: "Start right under the rim with a one-hand push shot, no jump.", advancedTip: "Move to mid-range and add a shot-fake before the release." },
+    { id: uid(), name: "Spot Shooting", category: "shooting", duration: 8, description: "Shoot from five spots around the arc, moving to the next spot after each make.", beginnerTip: "Shorten the distance and allow a dribble before shooting.", advancedTip: "Add a hand in the shooter's face, or require 2 makes before rotating." },
+    { id: uid(), name: "Partner Passing", category: "passing", duration: 6, description: "Chest, bounce, and overhead passes back and forth with a partner.", beginnerTip: "Stand closer together and use two hands on every pass.", advancedTip: "Add movement, one-hand passes, or a defender in the passing lane." },
+    { id: uid(), name: "Keep Away", category: "passing", duration: 6, description: "Two or three offensive players pass around a defender in the middle.", beginnerTip: "Widen the space and slow the pace so the passer has more time.", advancedTip: "Shrink the space and add a shot-clock style time limit per turn." },
+    { id: uid(), name: "Box Out Drill", category: "rebounding", duration: 6, description: "Find a body on the shot, seal, and secure the rebound.", beginnerTip: "Start already in contact with a coach toss, no live shot.", advancedTip: "Make it live off a missed shot with two offensive rebounders crashing." },
+    { id: uid(), name: "War Drill", category: "rebounding", duration: 5, description: "Two players battle for position on a ball tossed off the backboard.", beginnerTip: "Toss the ball softer and reward positioning over physicality.", advancedTip: "Add a third player, or require a score right after securing it." },
+    { id: uid(), name: "3-Man Weave", category: "offense", duration: 8, description: "Continuous passing and cutting down the floor to build spacing and finishing.", beginnerTip: "Walk through the pattern first before adding speed.", advancedTip: "Add a trailing defender to finish through contact." },
+    { id: uid(), name: "Give and Go", category: "offense", duration: 6, description: "Pass to a teammate, cut to the basket, and look for the return pass.", beginnerTip: "Coach feeds the first pass so players focus only on the cut.", advancedTip: "Add a defender who can jump the passing lane." },
+    { id: uid(), name: "Pick and Roll", category: "offense", duration: 10, description: "Ball handler works off a screen; screener rolls to the rim.", beginnerTip: "Walk through screen angle and roll timing with no defense.", advancedTip: "Add a hard hedge or switch for the ball handler to read." },
+    { id: uid(), name: "Fast Break Layups", category: "offense", duration: 7, description: "Outlet pass into a 2-on-1 or 3-on-2 break, finishing at speed.", beginnerTip: "Start with a 2-on-0 break, no defensive pressure.", advancedTip: "Make it 3-on-2 or 2-on-1 with a trailing defender." },
+    { id: uid(), name: "Shell Drill", category: "defense", duration: 10, description: "Four defenders rotate on ball and help-side positioning as the ball is passed around the perimeter.", beginnerTip: "Slow the ball movement and call out rotations out loud.", advancedTip: "Speed up ball reversals and require full closeouts on every pass." },
+    { id: uid(), name: "Closeout Drill", category: "defense", duration: 6, description: "Sprint out to a shooter under control and contest without fouling.", beginnerTip: "Start closer to the shooter with a shorter sprint.", advancedTip: "Add a live 1-on-1 right after the closeout." },
+    { id: uid(), name: "Zig-Zag Defense", category: "defense", duration: 8, description: "One-on-one ball pressure the full length of the floor, staying in a defensive stance.", beginnerTip: "Slow the offensive player's pace and reset if beaten.", advancedTip: "Add a live finish at the rim after the zig-zag." },
+    { id: uid(), name: "Baseline Inbound Play", category: "inbound", duration: 6, description: "A quick-hitting action off a made basket to beat the defense down the floor.", beginnerTip: "Walk through the cuts with no defenders.", advancedTip: "Add full defense and a 5-second inbound clock." },
+    { id: uid(), name: "Jump Ball Setup", category: "inbound", duration: 4, description: "Tip placement and teammate positioning for the opening tip-off.", beginnerTip: "Have the jumper simply tip to a stationary target.", advancedTip: "Add a live scramble for possession right after the tip." },
+    { id: uid(), name: "2-2-1 Full Court Press", category: "press", duration: 10, description: "Structured full-court pressure defense forcing the ball toward the sideline.", beginnerTip: "Walk through positioning with no live ball.", advancedTip: "Add a shot clock and live offense trying to break it." },
+    { id: uid(), name: "4-Man Press Break", category: "press", duration: 8, description: "Spacing and outlet passing to beat full-court pressure.", beginnerTip: "Start with no defenders — just spacing and passing rhythm.", advancedTip: "Add a live 2-2-1 press trying to trap and steal." },
+    { id: uid(), name: "Suicides", category: "conditioning", duration: 5, description: "Baseline-to-baseline sprint sets, touching each line.", beginnerTip: "Reduce reps or extend the rest between sets.", advancedTip: "Add a ball-handling requirement while sprinting." },
+    { id: uid(), name: "Defensive Slide Conditioning", category: "conditioning", duration: 5, description: "Continuous lateral slides in a defensive stance for stamina and footwork.", beginnerTip: "Shorten the distance and allow standing rest breaks.", advancedTip: "Add direction changes on a whistle and extend the work time." },
+  ];
+}
+function defaultWarmups() {
+  return [
+    { id: uid(), name: "Arm Circles", category: "stretch", duration: 1, description: "Small to large circles forward and backward to loosen the shoulders." },
+    { id: uid(), name: "Leg Swings", category: "stretch", duration: 2, description: "Front-to-back and side-to-side swings, holding a wall or teammate for balance." },
+    { id: uid(), name: "Torso Twists", category: "stretch", duration: 1, description: "Rotate the trunk side to side to warm up the core and lower back." },
+    { id: uid(), name: "Standing Hamstring Stretch", category: "stretch", duration: 2, description: "Reach toward the toes with a soft knee to loosen the hamstrings." },
+    { id: uid(), name: "Ankle Rolls", category: "stretch", duration: 1, description: "Roll each ankle both directions to prep for quick cuts and stops." },
+    { id: uid(), name: "High Knees", category: "exercise", duration: 2, description: "Jog in place driving the knees up to raise heart rate." },
+    { id: uid(), name: "Butt Kicks", category: "exercise", duration: 2, description: "Jog kicking heels toward the glutes to activate the hamstrings." },
+    { id: uid(), name: "Jumping Jacks", category: "exercise", duration: 2, description: "Full-body movement to get blood flowing before drills start." },
+    { id: uid(), name: "Lateral Shuffles", category: "exercise", duration: 2, description: "Low, wide shuffles side to side to fire up defensive footwork." },
+    { id: uid(), name: "Layup Line Jog", category: "exercise", duration: 3, description: "Easy jog through a layup line to finish warming up while touching the ball." },
+  ];
+}
+
+function BasketballIcon({ cx, cy, r }) {
+  const x0 = cx - r, x1 = cx + r, y0 = cy - r, y1 = cy + r;
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={r} fill="#E8791F" stroke="#7A3D0F" strokeWidth={r * 0.09} />
+      <line x1={x0} y1={cy} x2={x1} y2={cy} stroke="#3A1F0A" strokeWidth={r * 0.09} />
+      <line x1={cx} y1={y0} x2={cx} y2={y1} stroke="#3A1F0A" strokeWidth={r * 0.09} />
+      <path d={`M ${cx} ${y0} Q ${cx + r * 0.65} ${cy - r * 0.5} ${cx + r * 0.65} ${cy} Q ${cx + r * 0.65} ${cy + r * 0.5} ${cx} ${y1}`} fill="none" stroke="#3A1F0A" strokeWidth={r * 0.08} />
+      <path d={`M ${cx} ${y0} Q ${cx - r * 0.65} ${cy - r * 0.5} ${cx - r * 0.65} ${cy} Q ${cx - r * 0.65} ${cy + r * 0.5} ${cx} ${y1}`} fill="none" stroke="#3A1F0A" strokeWidth={r * 0.08} />
+      <ellipse cx={cx - r * 0.35} cy={cy - r * 0.4} rx={r * 0.3} ry={r * 0.18} fill="#FFFFFF" opacity="0.22" />
+    </g>
+  );
+}
+
+/* ---------------------------------- small UI atoms ---------------------------------- */
+
+function PhaseButton({ active, onClick, icon: Icon, label, sub }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 4,
+        padding: "12px 8px",
+        background: active ? C.panel3 : "transparent",
+        border: "none",
+        borderBottom: `3px solid ${active ? C.amber : "transparent"}`,
+        cursor: "pointer",
+        transition: "background 0.15s ease",
+      }}
+    >
+      <Icon size={18} color={active ? C.amber : C.chalkDim} strokeWidth={2.25} />
+      <span
+        style={{
+          fontFamily: "'Anton', sans-serif",
+          fontSize: 13,
+          letterSpacing: "0.08em",
+          color: active ? C.chalk : C.chalkDim,
+        }}
+      >
+        {label}
+      </span>
+      <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 10, color: C.chalkFaint }}>{sub}</span>
+    </button>
+  );
+}
+
+function TabPill({ active, onClick, icon: Icon, label }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "7px 12px",
+        borderRadius: 999,
+        border: `1px solid ${active ? C.amber : C.line}`,
+        background: active ? C.amber : "transparent",
+        color: active ? C.amberInk : C.chalkDim,
+        fontFamily: "'Inter', sans-serif",
+        fontWeight: 600,
+        fontSize: 12.5,
+        whiteSpace: "nowrap",
+        cursor: "pointer",
+        flexShrink: 0,
+      }}
+    >
+      <Icon size={13.5} strokeWidth={2.5} />
+      {label}
+    </button>
+  );
+}
+
+function Panel({ title, subtitle, icon: Icon, children }) {
+  return (
+    <div
+      style={{
+        background: C.panel,
+        border: `1px solid ${C.line}`,
+        borderRadius: 10,
+        padding: "18px 16px 20px",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 14 }}>
+        <div
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 8,
+            background: C.panel3,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          <Icon size={16} color={C.amber} strokeWidth={2.25} />
+        </div>
+        <div>
+          <h2
+            style={{
+              fontFamily: "'Anton', sans-serif",
+              fontSize: 19,
+              letterSpacing: "0.02em",
+              color: C.chalk,
+              margin: 0,
+              textTransform: "uppercase",
+            }}
+          >
+            {title}
+          </h2>
+          <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 12.5, color: C.chalkDim, margin: "2px 0 0" }}>
+            {subtitle}
+          </p>
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function IconBtn({ onClick, children, danger }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 30,
+        height: 30,
+        borderRadius: 7,
+        border: `1px solid ${C.line}`,
+        background: "transparent",
+        color: danger ? C.red : C.chalkDim,
+        cursor: "pointer",
+        flexShrink: 0,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TextInput({ value, onChange, placeholder, onEnter }) {
+  return (
+    <input
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && onEnter) onEnter();
+      }}
+      style={{
+        flex: 1,
+        background: C.bg2,
+        border: `1px solid ${C.line}`,
+        borderRadius: 7,
+        padding: "9px 11px",
+        color: C.chalk,
+        fontFamily: "'Inter', sans-serif",
+        fontSize: 13.5,
+        outline: "none",
+      }}
+    />
+  );
+}
+
+function TextAreaField({ label, value, onChange, placeholder, rows = 3 }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      {label && (
+        <label
+          style={{
+            display: "block",
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 12,
+            fontWeight: 600,
+            color: C.sage,
+            textTransform: "uppercase",
+            letterSpacing: "0.04em",
+            marginBottom: 6,
+          }}
+        >
+          {label}
+        </label>
+      )}
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        rows={rows}
+        style={{
+          width: "100%",
+          resize: "vertical",
+          background: C.bg2,
+          border: `1px solid ${C.line}`,
+          borderRadius: 7,
+          padding: "10px 11px",
+          color: C.chalk,
+          fontFamily: "'Inter', sans-serif",
+          fontSize: 13.5,
+          outline: "none",
+          boxSizing: "border-box",
+        }}
+      />
+    </div>
+  );
+}
+
+function AddRow({ value, setValue, onAdd, placeholder }) {
+  return (
+    <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+      <TextInput value={value} onChange={setValue} placeholder={placeholder} onEnter={onAdd} />
+      <button
+        onClick={onAdd}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 5,
+          padding: "0 14px",
+          borderRadius: 7,
+          border: "none",
+          background: C.amber,
+          color: C.amberInk,
+          fontFamily: "'Inter', sans-serif",
+          fontWeight: 700,
+          fontSize: 13,
+          cursor: "pointer",
+        }}
+      >
+        <Plus size={15} strokeWidth={3} /> Add
+      </button>
+    </div>
+  );
+}
+
+function Checklist({ items, setItems, placeholder, empty }) {
+  const [val, setVal] = useState("");
+  return (
+    <div>
+      <AddRow value={val} setValue={setVal} placeholder={placeholder} onAdd={() => { addItem(setItems, val); setVal(""); }} />
+      {items.length === 0 && (
+        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 12.5, color: C.chalkFaint, fontStyle: "italic" }}>{empty}</p>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {items.map((i) => (
+          <div
+            key={i.id}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              background: C.bg2,
+              border: `1px solid ${C.line}`,
+              borderRadius: 7,
+              padding: "8px 10px",
+            }}
+          >
+            <button
+              onClick={() => toggleItem(setItems, i.id)}
+              style={{
+                width: 19,
+                height: 19,
+                borderRadius: 5,
+                border: `1.5px solid ${i.done ? C.sage : C.chalkDim}`,
+                background: i.done ? C.sage : "transparent",
+                cursor: "pointer",
+                flexShrink: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {i.done && <span style={{ color: C.bg2, fontSize: 12, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+            </button>
+            <span
+              style={{
+                flex: 1,
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 13.5,
+                color: i.done ? C.chalkFaint : C.chalk,
+                textDecoration: i.done ? "line-through" : "none",
+              }}
+            >
+              {i.text}
+            </span>
+            <IconBtn onClick={() => removeItem(setItems, i.id)} danger>
+              <Trash2 size={14} />
+            </IconBtn>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RatingRow({ label, description, value, onChange }) {
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 3 }}>
+        <span style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 13.5, color: C.chalk }}>{label}</span>
+        <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 20, color: C.amber, fontWeight: 700 }}>{value}</span>
+      </div>
+      <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 11.5, color: C.chalkDim, margin: "0 0 8px" }}>{description}</p>
+      <input
+        type="range"
+        min={1}
+        max={5}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="np-slider"
+      />
+    </div>
+  );
+}
+
+/* ---------------------------------- PLAN: Targets ---------------------------------- */
+
+function TargetsTab({ targets, setTargets }) {
+  return (
+    <Panel icon={Target} title="Targets" subtitle="Set 2–4 specific targets for today's practice">
+      <Checklist items={targets} setItems={setTargets} placeholder="e.g. Hit 70% on free-throw drill" empty="No targets yet — add your first one above." />
+    </Panel>
+  );
+}
+
+/* ---------------------------------- PLAN: Connections / Challenges ---------------------------------- */
+
+function PlayerNotesTab({ icon, title, subtitle, players, setPlayers, field, placeholder }) {
+  return (
+    <Panel icon={icon} title={title} subtitle={subtitle}>
+      {players.length === 0 ? (
+        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: C.chalkFaint, fontStyle: "italic" }}>
+          No players on your roster yet. Add players from the Attendance tab.
+        </p>
+      ) : (
+        <div className="np-roster-list">
+          {players.map((p) => (
+            <div key={p.id} style={{ background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 8, padding: 12 }}>
+              <div style={{ fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 13.5, color: C.chalk, marginBottom: 6 }}>
+                {p.name}
+              </div>
+              <textarea
+                value={p[field]}
+                onChange={(e) =>
+                  setPlayers((ps) => ps.map((x) => (x.id === p.id ? { ...x, [field]: e.target.value } : x)))
+                }
+                placeholder={placeholder}
+                rows={2}
+                style={{
+                  width: "100%",
+                  resize: "vertical",
+                  background: C.bg,
+                  border: `1px solid ${C.line}`,
+                  borderRadius: 6,
+                  padding: "8px 9px",
+                  color: C.chalk,
+                  fontFamily: "'Inter', sans-serif",
+                  fontSize: 13,
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+/* ---------------------------------- PLAN: Player Profiles ---------------------------------- */
+
+const POSITIONS = ["PG", "SG", "SF", "PF", "C"];
+
+function ProfileLabel({ children }) {
+  return (
+    <label
+      style={{
+        display: "block", fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 600, color: C.sage,
+        textTransform: "uppercase", letterSpacing: "0.04em", margin: "8px 0 5px",
+      }}
+    >
+      {children}
+    </label>
+  );
+}
+
+function PlayerProfileCard({ player, setPlayers }) {
+  const update = (patch) => setPlayers((ps) => ps.map((p) => (p.id === player.id ? { ...p, ...patch } : p)));
+  const textareaStyle = {
+    width: "100%", resize: "vertical", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6,
+    padding: "8px 9px", color: C.chalk, fontFamily: "'Inter', sans-serif", fontSize: 13, outline: "none", boxSizing: "border-box",
+  };
+
+  return (
+    <div style={{ background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 8, padding: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <input
+          value={player.jerseyNumber || ""}
+          onChange={(e) => update({ jerseyNumber: e.target.value.replace(/[^0-9]/g, "").slice(0, 2) })}
+          placeholder="#"
+          style={{
+            width: 38, textAlign: "center", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6,
+            padding: "6px 2px", color: C.amber, fontFamily: "'Space Mono', monospace", fontWeight: 700, fontSize: 14, outline: "none",
+          }}
+        />
+        <span style={{ flex: 1, fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 15, color: C.chalk }}>
+          {player.name}
+        </span>
+        <input
+          value={player.yearsOnTeam || ""}
+          onChange={(e) => update({ yearsOnTeam: e.target.value })}
+          placeholder="Yrs on team"
+          style={{
+            width: 78, textAlign: "center", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6,
+            padding: "6px 4px", color: C.chalkDim, fontFamily: "'Inter', sans-serif", fontSize: 11, outline: "none",
+          }}
+        />
+      </div>
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
+        {POSITIONS.map((pos) => (
+          <button
+            key={pos}
+            onClick={() => update({ position: player.position === pos ? "" : pos })}
+            style={{
+              padding: "5px 11px", borderRadius: 999, border: `1px solid ${player.position === pos ? C.amber : C.line}`,
+              background: player.position === pos ? C.amber : "transparent", color: player.position === pos ? C.amberInk : C.chalkDim,
+              fontFamily: "'Space Mono', monospace", fontWeight: 700, fontSize: 11.5, cursor: "pointer",
+            }}
+          >
+            {pos}
+          </button>
+        ))}
+      </div>
+
+      <ProfileLabel>Strengths</ProfileLabel>
+      <textarea
+        value={player.strengths || ""}
+        onChange={(e) => update({ strengths: e.target.value })}
+        placeholder="What this player does well"
+        rows={2}
+        style={textareaStyle}
+      />
+      <ProfileLabel>Weaknesses</ProfileLabel>
+      <textarea
+        value={player.weaknesses || ""}
+        onChange={(e) => update({ weaknesses: e.target.value })}
+        placeholder="What to work on"
+        rows={2}
+        style={textareaStyle}
+      />
+    </div>
+  );
+}
+
+function PlayerProfilesTab({ players, setPlayers }) {
+  return (
+    <Panel icon={User} title="Players" subtitle="Position, experience, strengths and weaknesses">
+      {players.length === 0 ? (
+        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: C.chalkFaint, fontStyle: "italic" }}>
+          No players on your roster yet. Add players from the Attendance tab.
+        </p>
+      ) : (
+        <div className="np-roster-list">
+          {players.map((p) => <PlayerProfileCard key={p.id} player={p} setPlayers={setPlayers} />)}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+/* ---------------------------------- PLAN: Attendance ---------------------------------- */
+
+function AttendanceTab({ players, setPlayers }) {
+  const [name, setName] = useState("");
+
+  const addPlayer = () => {
+    if (!name.trim()) return;
+    setPlayers((ps) => [
+      ...ps,
+      {
+        id: uid(), name: name.trim(), present: true, team: null, connectionNote: "", challengeNote: "",
+        position: "", jerseyNumber: "", yearsOnTeam: "", strengths: "", weaknesses: "",
+      },
+    ]);
+    setName("");
+  };
+  const removePlayer = (id) => setPlayers((ps) => ps.filter((p) => p.id !== id));
+  const togglePresent = (id) =>
+    setPlayers((ps) => ps.map((p) => (p.id === id ? { ...p, present: !p.present, team: !p.present ? p.team : null } : p)));
+  const cycleTeam = (id) =>
+    setPlayers((ps) =>
+      ps.map((p) => {
+        if (p.id !== id) return p;
+        const next = p.team === "A" ? "B" : p.team === "B" ? null : "A";
+        return { ...p, team: next };
+      })
+    );
+  const shuffleTeams = () => {
+    setPlayers((ps) => {
+      const present = ps.filter((p) => p.present);
+      const shuffled = [...present].sort(() => Math.random() - 0.5);
+      const half = Math.ceil(shuffled.length / 2);
+      const teamA = new Set(shuffled.slice(0, half).map((p) => p.id));
+      return ps.map((p) => (p.present ? { ...p, team: teamA.has(p.id) ? "A" : "B" } : { ...p, team: null }));
+    });
+  };
+
+  const presentCount = players.filter((p) => p.present).length;
+
+  return (
+    <Panel icon={ClipboardCheck} title="Attendance" subtitle="Track who's here and split scrimmage teams">
+      <AddRow value={name} setValue={setName} placeholder="Player name" onAdd={addPlayer} />
+
+      {players.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 12.5, color: C.sage }}>
+            {presentCount} / {players.length} present
+          </span>
+          <button
+            onClick={shuffleTeams}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "6px 11px",
+              borderRadius: 7,
+              border: `1px solid ${C.amberDim}`,
+              background: "transparent",
+              color: C.amber,
+              fontFamily: "'Inter', sans-serif",
+              fontWeight: 700,
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            <Shuffle size={13} /> Shuffle teams
+          </button>
+        </div>
+      )}
+
+      {players.length === 0 ? (
+        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: C.chalkFaint, fontStyle: "italic" }}>
+          No players yet — add your roster above.
+        </p>
+      ) : (
+        <div className="np-roster-list">
+          {players.map((p) => (
+            <div
+              key={p.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                background: C.bg2,
+                border: `1px solid ${C.line}`,
+                borderRadius: 7,
+                padding: "8px 10px",
+              }}
+            >
+              <button
+                onClick={() => togglePresent(p.id)}
+                style={{
+                  fontFamily: "'Inter', sans-serif",
+                  fontWeight: 700,
+                  fontSize: 10.5,
+                  letterSpacing: "0.04em",
+                  padding: "4px 8px",
+                  borderRadius: 5,
+                  border: `1px solid ${p.present ? C.sage : C.line}`,
+                  background: p.present ? "rgba(121,160,122,0.18)" : "transparent",
+                  color: p.present ? C.sage : C.chalkFaint,
+                  cursor: "pointer",
+                  flexShrink: 0,
+                }}
+              >
+                {p.present ? "PRESENT" : "ABSENT"}
+              </button>
+              <span
+                style={{
+                  flex: 1,
+                  fontFamily: "'Inter', sans-serif",
+                  fontSize: 13.5,
+                  color: p.present ? C.chalk : C.chalkFaint,
+                }}
+              >
+                {p.name}
+              </span>
+              {p.present && (
+                <button
+                  onClick={() => cycleTeam(p.id)}
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: 6,
+                    border: `1px solid ${p.team ? C.amber : C.line}`,
+                    background: p.team ? C.amber : "transparent",
+                    color: p.team ? C.amberInk : C.chalkFaint,
+                    fontFamily: "'Space Mono', monospace",
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: "pointer",
+                    flexShrink: 0,
+                  }}
+                  title="Click to assign team"
+                >
+                  {p.team || "–"}
+                </button>
+              )}
+              <IconBtn onClick={() => removePlayer(p.id)} danger>
+                <Trash2 size={14} />
+              </IconBtn>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+/* ---------------------------------- PLAN: Notes/Reminders/Equipment ---------------------------------- */
+
+function LogisticsTab({ equipment, setEquipment, reminders, setReminders, notices, setNotices }) {
+  return (
+    <div className="np-logistics">
+      <Panel icon={StickyNote} title="Equipment" subtitle="What to bring or set up before players arrive">
+        <Checklist items={equipment} setItems={setEquipment} placeholder="e.g. Cones, extra balls, scrimmage vests" empty="Nothing on the equipment list yet." />
+      </Panel>
+      <Panel icon={StickyNote} title="Reminders" subtitle="Things to remember for this session">
+        <Checklist items={reminders} setItems={setReminders} placeholder="e.g. Check in with injured player" empty="No reminders yet." />
+      </Panel>
+      <Panel icon={StickyNote} title="Notices" subtitle="Announcements for players or parents">
+        <Checklist items={notices} setItems={setNotices} placeholder="e.g. Tournament sign-up closes Friday" empty="No notices yet." />
+      </Panel>
+    </div>
+  );
+}
+
+/* ---------------------------------- DELIVER: Warm-Up ---------------------------------- */
+
+function WarmupCategoryBadge({ category }) {
+  const isStretch = category === "stretch";
+  return (
+    <span
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "'Inter', sans-serif", fontWeight: 700,
+        fontSize: 10.5, letterSpacing: "0.04em", padding: "3px 8px", borderRadius: 5, flexShrink: 0,
+        color: isStretch ? C.sage : C.amber,
+        background: isStretch ? "rgba(121,160,122,0.15)" : "rgba(224,135,44,0.15)",
+      }}
+    >
+      {isStretch ? "STRETCH" : "EXERCISE"}
+    </span>
+  );
+}
+
+function WarmupTab({ warmups, setWarmups, onAddToPlan }) {
+  const [filter, setFilter] = useState("all");
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState("stretch");
+  const [duration, setDuration] = useState("");
+  const [description, setDescription] = useState("");
+  const [showForm, setShowForm] = useState(false);
+
+  const addWarmup = () => {
+    if (!name.trim()) return;
+    setWarmups((ws) => [
+      ...ws,
+      { id: uid(), name: name.trim(), category, duration: Number(duration) || 0, description: description.trim() },
+    ]);
+    setName(""); setDuration(""); setDescription(""); setShowForm(false);
+  };
+  const removeWarmup = (id) => setWarmups((ws) => ws.filter((w) => w.id !== id));
+
+  const visible = warmups.filter((w) => filter === "all" || w.category === filter);
+
+  return (
+    <Panel icon={PersonStanding} title="Warm-Up" subtitle="Stretching and light exercise to open every practice">
+      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+        <TabPill active={filter === "all"} onClick={() => setFilter("all")} icon={ListOrdered} label="All" />
+        <TabPill active={filter === "stretch"} onClick={() => setFilter("stretch")} icon={PersonStanding} label="Stretch" />
+        <TabPill active={filter === "exercise"} onClick={() => setFilter("exercise")} icon={Zap} label="Exercise" />
+      </div>
+
+      {!showForm ? (
+        <button
+          onClick={() => setShowForm(true)}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 7,
+            border: `1px dashed ${C.line}`, background: "transparent", color: C.chalkDim,
+            fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 12.5, cursor: "pointer", marginBottom: 14,
+          }}
+        >
+          <Plus size={14} strokeWidth={2.5} /> Add your own warm-up
+        </button>
+      ) : (
+        <div style={{ background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 8, padding: 12, marginBottom: 14 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <TextInput value={name} onChange={setName} placeholder="Warm-up name" />
+            <input
+              value={duration}
+              onChange={(e) => setDuration(e.target.value.replace(/[^0-9]/g, ""))}
+              placeholder="min"
+              style={{
+                width: 56, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 7, padding: "9px 8px",
+                color: C.chalk, fontFamily: "'Space Mono', monospace", fontSize: 13.5, outline: "none", textAlign: "center",
+              }}
+            />
+          </div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            <TabPill active={category === "stretch"} onClick={() => setCategory("stretch")} icon={PersonStanding} label="Stretch" />
+            <TabPill active={category === "exercise"} onClick={() => setCategory("exercise")} icon={Zap} label="Exercise" />
+          </div>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Quick description (optional)"
+            rows={2}
+            style={{
+              width: "100%", resize: "vertical", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6,
+              padding: "8px 9px", color: C.chalk, fontFamily: "'Inter', sans-serif", fontSize: 13, outline: "none",
+              boxSizing: "border-box", marginBottom: 8,
+            }}
+          />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={addWarmup}
+              style={{
+                flex: 1, padding: "9px 0", borderRadius: 7, border: "none", background: C.amber, color: C.amberInk,
+                fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer",
+              }}
+            >
+              Save warm-up
+            </button>
+            <button
+              onClick={() => setShowForm(false)}
+              style={{
+                padding: "9px 14px", borderRadius: 7, border: `1px solid ${C.line}`, background: "transparent",
+                color: C.chalkDim, fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 13, cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {visible.length === 0 ? (
+        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: C.chalkFaint, fontStyle: "italic" }}>
+          Nothing in this category yet.
+        </p>
+      ) : (
+        <div className="np-drills-list">
+          {visible.map((w) => (
+            <div key={w.id} style={{ background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 8, padding: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                <WarmupCategoryBadge category={w.category} />
+                {w.duration > 0 && (
+                  <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 11.5, color: C.chalkDim }}>
+                    {w.duration}m
+                  </span>
+                )}
+              </div>
+              <div style={{ fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 14, color: C.chalk, marginBottom: 4 }}>
+                {w.name}
+              </div>
+              {w.description && (
+                <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 12.5, color: C.chalkDim, margin: "0 0 10px" }}>
+                  {w.description}
+                </p>
+              )}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => onAddToPlan(w.name, w.duration)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5, padding: "6px 11px", borderRadius: 6,
+                    border: `1px solid ${C.amberDim}`, background: "transparent", color: C.amber,
+                    fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer",
+                  }}
+                >
+                  <Plus size={13} strokeWidth={2.5} /> Add to practice plan
+                </button>
+                <IconBtn onClick={() => removeWarmup(w.id)} danger>
+                  <Trash2 size={14} />
+                </IconBtn>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+/* ---------------------------------- DELIVER: Drills ---------------------------------- */
+
+function DrillArt({ category }) {
+  if (category !== "offense" && category !== "defense") return null;
+  const isOffense = category === "offense";
+  const accent = isOffense ? C.sage : C.red;
+  return (
+    <svg viewBox="0 0 120 70" style={{ width: 76, height: 44, flexShrink: 0, borderRadius: 6, background: C.bg }}>
+      <rect x="4" y="4" width="112" height="62" fill="none" stroke={C.chalkFaint} strokeWidth="1.5" />
+      <path d="M 4 66 A 40 40 0 0 1 60 30 A 40 40 0 0 1 116 66" fill="none" stroke={C.chalkFaint} strokeWidth="1" />
+      {isOffense ? (
+        <>
+          <circle cx="24" cy="50" r="6" fill="none" stroke={accent} strokeWidth="2" />
+          <circle cx="60" cy="20" r="6" fill="none" stroke={accent} strokeWidth="2" />
+          <circle cx="96" cy="50" r="6" fill="none" stroke={accent} strokeWidth="2" />
+          <path d="M 30 47 Q 45 30 55 22" fill="none" stroke={C.amber} strokeWidth="1.5" strokeDasharray="3 2" />
+          <path d="M 65 22 Q 78 32 90 47" fill="none" stroke={C.amber} strokeWidth="1.5" strokeDasharray="3 2" />
+        </>
+      ) : (
+        <>
+          <g stroke={accent} strokeWidth="2" strokeLinecap="round">
+            <line x1="18" y1="44" x2="30" y2="56" /><line x1="30" y1="44" x2="18" y2="56" />
+            <line x1="54" y1="16" x2="66" y2="28" /><line x1="66" y1="16" x2="54" y2="28" />
+            <line x1="90" y1="44" x2="102" y2="56" /><line x1="102" y1="44" x2="90" y2="56" />
+          </g>
+          <path d="M 24 42 Q 40 30 50 24" fill="none" stroke={C.chalkDim} strokeWidth="1.2" strokeDasharray="2 2" />
+          <path d="M 70 24 Q 82 32 96 42" fill="none" stroke={C.chalkDim} strokeWidth="1.2" strokeDasharray="2 2" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function categoryAccent(colorKey) {
+  if (colorKey === "sage") return C.sage;
+  if (colorKey === "amber") return C.amber;
+  if (colorKey === "red") return C.red;
+  return C.chalkDim;
+}
+
+function DrillCategoryBadge({ category }) {
+  const meta = DRILL_CATEGORIES.find((c) => c.key === category) || { label: category, color: "dim" };
+  const accent = categoryAccent(meta.color);
+  return (
+    <span
+      style={{
+        display: "inline-flex", alignItems: "center", fontFamily: "'Inter', sans-serif", fontWeight: 700,
+        fontSize: 10.5, letterSpacing: "0.03em", padding: "3px 8px", borderRadius: 5, flexShrink: 0,
+        color: accent, background: `${accent}26`,
+      }}
+    >
+      {meta.label.toUpperCase()}
+    </span>
+  );
+}
+
+function DrillsTab({ drills, setDrills, onAddToPlan }) {
+  const [filter, setFilter] = useState("all");
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState("dribbling");
+  const [duration, setDuration] = useState("");
+  const [description, setDescription] = useState("");
+  const [beginnerTip, setBeginnerTip] = useState("");
+  const [advancedTip, setAdvancedTip] = useState("");
+  const [showForm, setShowForm] = useState(false);
+
+  const addDrill = () => {
+    if (!name.trim()) return;
+    setDrills((ds) => [
+      ...ds,
+      {
+        id: uid(), name: name.trim(), category, duration: Number(duration) || 0, description: description.trim(),
+        beginnerTip: beginnerTip.trim(), advancedTip: advancedTip.trim(),
+      },
+    ]);
+    setName(""); setDuration(""); setDescription(""); setBeginnerTip(""); setAdvancedTip(""); setShowForm(false);
+  };
+  const removeDrill = (id) => setDrills((ds) => ds.filter((d) => d.id !== id));
+
+  const visible = drills.filter((d) => filter === "all" || d.category === filter);
+
+  return (
+    <Panel icon={Dumbbell} title="Drills" subtitle="Fundamentals, offense, defense, presses, and conditioning">
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, overflowX: "auto", paddingBottom: 2 }}>
+        <TabPill active={filter === "all"} onClick={() => setFilter("all")} icon={ListOrdered} label="All" />
+        {DRILL_CATEGORIES.map((c) => (
+          <TabPill key={c.key} active={filter === c.key} onClick={() => setFilter(c.key)} icon={Dumbbell} label={c.label} />
+        ))}
+      </div>
+
+      {!showForm ? (
+        <button
+          onClick={() => setShowForm(true)}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 7,
+            border: `1px dashed ${C.line}`, background: "transparent", color: C.chalkDim,
+            fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 12.5, cursor: "pointer", marginBottom: 14,
+          }}
+        >
+          <Plus size={14} strokeWidth={2.5} /> Add your own drill
+        </button>
+      ) : (
+        <div style={{ background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 8, padding: 12, marginBottom: 14 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <TextInput value={name} onChange={setName} placeholder="Drill name" />
+            <input
+              value={duration}
+              onChange={(e) => setDuration(e.target.value.replace(/[^0-9]/g, ""))}
+              placeholder="min"
+              style={{
+                width: 56, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 7, padding: "9px 8px",
+                color: C.chalk, fontFamily: "'Space Mono', monospace", fontSize: 13.5, outline: "none", textAlign: "center",
+              }}
+            />
+          </div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 8, overflowX: "auto", paddingBottom: 2 }}>
+            {DRILL_CATEGORIES.map((c) => (
+              <TabPill key={c.key} active={category === c.key} onClick={() => setCategory(c.key)} icon={Dumbbell} label={c.label} />
+            ))}
+          </div>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Quick description (optional)"
+            rows={2}
+            style={{
+              width: "100%", resize: "vertical", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6,
+              padding: "8px 9px", color: C.chalk, fontFamily: "'Inter', sans-serif", fontSize: 13, outline: "none",
+              boxSizing: "border-box", marginBottom: 8,
+            }}
+          />
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <TextInput value={beginnerTip} onChange={setBeginnerTip} placeholder="Easier for beginners (optional)" />
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <TextInput value={advancedTip} onChange={setAdvancedTip} placeholder="Harder for advanced players (optional)" />
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={addDrill}
+              style={{
+                flex: 1, padding: "9px 0", borderRadius: 7, border: "none", background: C.amber, color: C.amberInk,
+                fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer",
+              }}
+            >
+              Save drill
+            </button>
+            <button
+              onClick={() => setShowForm(false)}
+              style={{
+                padding: "9px 14px", borderRadius: 7, border: `1px solid ${C.line}`, background: "transparent",
+                color: C.chalkDim, fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 13, cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {visible.length === 0 ? (
+        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: C.chalkFaint, fontStyle: "italic" }}>
+          No drills in this category yet.
+        </p>
+      ) : (
+        <div className="np-drills-list">
+          {visible.map((d) => (
+            <div key={d.id} style={{ background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 8, padding: 12 }}>
+              <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+                <DrillArt category={d.category} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                    <DrillCategoryBadge category={d.category} />
+                    {d.duration > 0 && (
+                      <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 11.5, color: C.chalkDim }}>
+                        {d.duration}m
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 14, color: C.chalk }}>
+                    {d.name}
+                  </div>
+                </div>
+              </div>
+              {d.description && (
+                <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 12.5, color: C.chalkDim, margin: "0 0 8px" }}>
+                  {d.description}
+                </p>
+              )}
+              {(d.beginnerTip || d.advancedTip) && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
+                  {d.beginnerTip && (
+                    <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 11.5, color: C.chalkDim, margin: 0 }}>
+                      <strong style={{ color: C.sage }}>Beginner:</strong> {d.beginnerTip}
+                    </p>
+                  )}
+                  {d.advancedTip && (
+                    <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 11.5, color: C.chalkDim, margin: 0 }}>
+                      <strong style={{ color: C.amber }}>Advanced:</strong> {d.advancedTip}
+                    </p>
+                  )}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => onAddToPlan(d.name, d.duration)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5, padding: "6px 11px", borderRadius: 6,
+                    border: `1px solid ${C.amberDim}`, background: "transparent", color: C.amber,
+                    fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer",
+                  }}
+                >
+                  <Plus size={13} strokeWidth={2.5} /> Add to practice plan
+                </button>
+                <IconBtn onClick={() => removeDrill(d.id)} danger>
+                  <Trash2 size={14} />
+                </IconBtn>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+/* ---------------------------------- DELIVER: Practice Plan ---------------------------------- */
+
+function PracticePlanTab({ items, setItems }) {
+  const [activity, setActivity] = useState("");
+  const [duration, setDuration] = useState("");
+
+  const add = () => {
+    if (!activity.trim()) return;
+    setItems((its) => [...its, { id: uid(), activity: activity.trim(), duration: Number(duration) || 0 }]);
+    setActivity("");
+    setDuration("");
+  };
+  const remove = (id) => setItems((its) => its.filter((i) => i.id !== id));
+  const move = (id, dir) =>
+    setItems((its) => {
+      const idx = its.findIndex((i) => i.id === id);
+      const swap = idx + dir;
+      if (swap < 0 || swap >= its.length) return its;
+      const copy = [...its];
+      [copy[idx], copy[swap]] = [copy[swap], copy[idx]];
+      return copy;
+    });
+
+  const total = items.reduce((s, i) => s + (i.duration || 0), 0);
+
+  return (
+    <Panel icon={ListOrdered} title="Practice Plan" subtitle="Build an ordered, timed practice">
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <TextInput value={activity} onChange={setActivity} placeholder="Activity or drill" onEnter={add} />
+        <input
+          value={duration}
+          onChange={(e) => setDuration(e.target.value.replace(/[^0-9]/g, ""))}
+          placeholder="min"
+          style={{
+            width: 56,
+            background: C.bg2,
+            border: `1px solid ${C.line}`,
+            borderRadius: 7,
+            padding: "9px 8px",
+            color: C.chalk,
+            fontFamily: "'Space Mono', monospace",
+            fontSize: 13.5,
+            outline: "none",
+            textAlign: "center",
+          }}
+        />
+        <button
+          onClick={add}
+          style={{
+            display: "flex", alignItems: "center", gap: 5, padding: "0 14px", borderRadius: 7, border: "none",
+            background: C.amber, color: C.amberInk, fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer",
+          }}
+        >
+          <Plus size={15} strokeWidth={3} /> Add
+        </button>
+      </div>
+
+      {items.length === 0 ? (
+        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: C.chalkFaint, fontStyle: "italic" }}>
+          No segments yet — build your practice above.
+        </p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+          {items.map((i, idx) => (
+            <div
+              key={i.id}
+              style={{
+                display: "flex", alignItems: "center", gap: 10, background: C.bg2,
+                border: `1px solid ${C.line}`, borderRadius: 7, padding: "8px 10px",
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: "'Space Mono', monospace", fontSize: 12, color: C.sage, width: 18, textAlign: "center", flexShrink: 0,
+                }}
+              >
+                {idx + 1}
+              </span>
+              <span style={{ flex: 1, fontFamily: "'Inter', sans-serif", fontSize: 13.5, color: C.chalk }}>{i.activity}</span>
+              <span
+                style={{
+                  fontFamily: "'Space Mono', monospace", fontSize: 12.5, color: C.amber, background: "rgba(224,135,44,0.14)",
+                  padding: "2px 8px", borderRadius: 5, flexShrink: 0,
+                }}
+              >
+                {i.duration}m
+              </span>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <button onClick={() => move(i.id, -1)} style={{ background: "none", border: "none", color: C.chalkDim, cursor: "pointer", padding: 0 }}>
+                  <ChevronUp size={13} />
+                </button>
+                <button onClick={() => move(i.id, 1)} style={{ background: "none", border: "none", color: C.chalkDim, cursor: "pointer", padding: 0 }}>
+                  <ChevronDown size={13} />
+                </button>
+              </div>
+              <IconBtn onClick={() => remove(i.id)} danger>
+                <Trash2 size={14} />
+              </IconBtn>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div
+        style={{
+          display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1px dashed ${C.line}`, paddingTop: 12,
+        }}
+      >
+        <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 12.5, color: C.chalkDim, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          Total time
+        </span>
+        <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 26, fontWeight: 700, color: C.chalk }}>
+          {total}<span style={{ fontSize: 14, color: C.chalkDim }}> min</span>
+        </span>
+      </div>
+    </Panel>
+  );
+}
+
+/* ---------------------------------- DELIVER: X's and O's ---------------------------------- */
+
+function ToolBtn({ active, onClick, icon: Icon, label }) {
+  return (
+    <button
+      onClick={onClick}
+      title={label}
+      style={{
+        display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "7px 10px", borderRadius: 8,
+        border: `1px solid ${active ? C.amber : C.line}`, background: active ? "rgba(224,135,44,0.16)" : "transparent",
+        color: active ? C.amber : C.chalkDim, cursor: "pointer", flexShrink: 0,
+      }}
+    >
+      <Icon size={16} strokeWidth={2.25} />
+      <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 9.5, fontWeight: 600 }}>{label}</span>
+    </button>
+  );
+}
+
+function CourtDiagram({ diagram, updateDiagram }) {
+  const svgRef = useRef(null);
+  const [tool, setTool] = useState("select");
+  const [lineStart, setLineStart] = useState(null);
+
+  const toPoint = (e) => {
+    const rect = svgRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 500;
+    const y = ((e.clientY - rect.top) / rect.height) * 460;
+    return { x: Math.max(4, Math.min(496, x)), y: Math.max(4, Math.min(456, y)) };
+  };
+
+  const handleBackgroundClick = (e) => {
+    const p = toPoint(e);
+    if (tool === "addO" || tool === "addX") {
+      updateDiagram((d) => ({
+        ...d,
+        markers: [...d.markers, { id: uid(), type: tool === "addO" ? "O" : "X", x: p.x, y: p.y }],
+      }));
+    } else if (tool === "line") {
+      if (!lineStart) {
+        setLineStart(p);
+      } else {
+        updateDiagram((d) => ({
+          ...d,
+          lines: [...d.lines, { id: uid(), x1: lineStart.x, y1: lineStart.y, x2: p.x, y2: p.y }],
+        }));
+        setLineStart(null);
+      }
+    }
+  };
+
+  const handleMarkerDown = (e, marker) => {
+    if (tool === "erase") {
+      e.stopPropagation();
+      updateDiagram((d) => ({ ...d, markers: d.markers.filter((m) => m.id !== marker.id) }));
+      return;
+    }
+    if (tool !== "select") return;
+    e.stopPropagation();
+    e.target.setPointerCapture(e.pointerId);
+  };
+  const handleMarkerMove = (e, marker) => {
+    if (tool !== "select" || e.buttons !== 1) return;
+    const p = toPoint(e);
+    updateDiagram((d) => ({
+      ...d,
+      markers: d.markers.map((m) => (m.id === marker.id ? { ...m, x: p.x, y: p.y } : m)),
+    }));
+  };
+
+  const removeLine = (id) => updateDiagram((d) => ({ ...d, lines: d.lines.filter((l) => l.id !== id) }));
+  const clearCourt = () => updateDiagram((d) => ({ ...d, markers: [], lines: [] }));
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, overflowX: "auto", paddingBottom: 2 }}>
+        <ToolBtn active={tool === "select"} onClick={() => { setTool("select"); setLineStart(null); }} icon={MousePointer2} label="Move" />
+        <ToolBtn active={tool === "addO"} onClick={() => { setTool("addO"); setLineStart(null); }} icon={Circle} label="Add O" />
+        <ToolBtn active={tool === "addX"} onClick={() => { setTool("addX"); setLineStart(null); }} icon={XIcon} label="Add X" />
+        <ToolBtn active={tool === "line"} onClick={() => setTool("line")} icon={ArrowUpRight} label="Draw line" />
+        <ToolBtn active={tool === "erase"} onClick={() => { setTool("erase"); setLineStart(null); }} icon={Eraser} label="Erase" />
+        <ToolBtn active={false} onClick={clearCourt} icon={RotateCcw} label="Clear all" />
+      </div>
+
+      {tool === "line" && (
+        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 11.5, color: C.amber, margin: "0 0 8px" }}>
+          {lineStart ? "Tap the end point to finish the line." : "Tap a start point on the court."}
+        </p>
+      )}
+      {tool === "erase" && (
+        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 11.5, color: C.red, margin: "0 0 8px" }}>
+          Tap a marker or a line to delete it.
+        </p>
+      )}
+
+      <svg
+        ref={svgRef}
+        viewBox="0 0 500 460"
+        onClick={handleBackgroundClick}
+        style={{
+          width: "100%",
+          background: C.bg2,
+          border: `1px solid ${C.line}`,
+          borderRadius: 10,
+          cursor: tool === "select" ? "default" : "crosshair",
+          touchAction: "none",
+        }}
+      >
+        {/* court markings */}
+        <rect x="10" y="10" width="480" height="440" fill="none" stroke={C.chalkFaint} strokeWidth="2" />
+        <line x1="210" y1="40" x2="290" y2="40" stroke={C.chalkFaint} strokeWidth="3" />
+        <circle cx="250" cy="55" r="9" fill="none" stroke={C.amberDim} strokeWidth="2.5" />
+        <rect x="190" y="10" width="120" height="150" fill="none" stroke={C.chalkFaint} strokeWidth="2" />
+        <circle cx="250" cy="160" r="60" fill="none" stroke={C.chalkFaint} strokeWidth="2" strokeDasharray="6 6" />
+        <path d="M 225 55 A 25 25 0 0 0 275 55" fill="none" stroke={C.chalkFaint} strokeWidth="1.5" />
+        <path d="M 30 10 L 30 130 A 220 220 0 0 0 470 130 L 470 10" fill="none" stroke={C.chalkFaint} strokeWidth="2" />
+        <line x1="10" y1="450" x2="490" y2="450" stroke={C.chalkFaint} strokeWidth="2" />
+        <path d="M 200 450 A 50 50 0 0 1 300 450" fill="none" stroke={C.chalkFaint} strokeWidth="2" />
+
+        <defs>
+          <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 Z" fill={C.amber} />
+          </marker>
+        </defs>
+
+        {/* lines */}
+        {diagram.lines.map((l) => (
+          <line
+            key={l.id}
+            x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}
+            stroke={C.amber} strokeWidth="2.5" markerEnd="url(#arrowhead)"
+            style={{ cursor: tool === "erase" ? "pointer" : "default" }}
+            onClick={(e) => { if (tool === "erase") { e.stopPropagation(); removeLine(l.id); } }}
+          />
+        ))}
+
+        {/* pending line start */}
+        {lineStart && <circle cx={lineStart.x} cy={lineStart.y} r="5" fill="none" stroke={C.amber} strokeDasharray="3 3" />}
+
+        {/* markers */}
+        {diagram.markers.map((m) => (
+          <g
+            key={m.id}
+            onPointerDown={(e) => handleMarkerDown(e, m)}
+            onPointerMove={(e) => handleMarkerMove(e, m)}
+            style={{ cursor: tool === "select" ? "grab" : tool === "erase" ? "pointer" : "default" }}
+          >
+            {m.type === "O" ? (
+              <circle cx={m.x} cy={m.y} r="12" fill={C.panel} stroke={C.sage} strokeWidth="2.5" />
+            ) : (
+              <>
+                <line x1={m.x - 8} y1={m.y - 8} x2={m.x + 8} y2={m.y + 8} stroke={C.red} strokeWidth="3" strokeLinecap="round" />
+                <line x1={m.x + 8} y1={m.y - 8} x2={m.x - 8} y2={m.y + 8} stroke={C.red} strokeWidth="3" strokeLinecap="round" />
+              </>
+            )}
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function PlayChip({ active, onClick, category, label }) {
+  const accent = category === "offense" ? C.sage : C.red;
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex", alignItems: "center", gap: 6, padding: "6px 11px", borderRadius: 999,
+        border: `1px solid ${active ? C.amber : C.line}`, background: active ? C.amber : "transparent",
+        color: active ? C.amberInk : C.chalkDim, fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 12.5,
+        whiteSpace: "nowrap", cursor: "pointer", flexShrink: 0,
+      }}
+    >
+      {category === "offense" ? (
+        <Circle size={9} strokeWidth={3} color={active ? C.amberInk : accent} />
+      ) : (
+        <XIcon size={9} strokeWidth={3} color={active ? C.amberInk : accent} />
+      )}
+      {label}
+    </button>
+  );
+}
+
+function XOTab({ diagrams, setDiagrams, activeId, setActiveId }) {
+  const active = diagrams.find((d) => d.id === activeId) || diagrams[0];
+
+  const offenseCount = diagrams.filter((d) => d.category === "offense").length;
+  const defenseCount = diagrams.filter((d) => d.category === "defense").length;
+
+  const updateActive = (fn) => setDiagrams((ds) => ds.map((d) => (d.id === active.id ? fn(d) : d)));
+
+  const newPlay = (category) => {
+    const countForCategory = category === "offense" ? offenseCount : defenseCount;
+    const label = category === "offense" ? "Offense" : "Defense";
+    const d = createDiagram(`${label} Play ${countForCategory + 1}`, category);
+    setDiagrams((ds) => [...ds, d]);
+    setActiveId(d.id);
+  };
+
+  const deletePlay = () => {
+    if (diagrams.length <= 1) return;
+    const rest = diagrams.filter((d) => d.id !== active.id);
+    setDiagrams(rest);
+    setActiveId(rest[0].id);
+  };
+
+  return (
+    <Panel icon={PenTool} title="X's and O's" subtitle="Diagram plays to match your practice plan">
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+        <input
+          value={active.name}
+          onChange={(e) => updateActive((d) => ({ ...d, name: e.target.value }))}
+          style={{
+            flex: 1, background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 7, padding: "8px 10px",
+            color: C.chalk, fontFamily: "'Anton', sans-serif", fontSize: 15, letterSpacing: "0.02em", outline: "none",
+          }}
+        />
+        <IconBtn onClick={deletePlay} danger><Trash2 size={14} /></IconBtn>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <button
+          onClick={() => newPlay("offense")}
+          style={{
+            flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 0",
+            borderRadius: 7, border: `1px solid ${C.sage}`, background: "rgba(121,160,122,0.12)", color: C.sage,
+            fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 12.5, cursor: "pointer",
+          }}
+        >
+          <Plus size={14} strokeWidth={2.5} /> Offense play
+        </button>
+        <button
+          onClick={() => newPlay("defense")}
+          style={{
+            flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 0",
+            borderRadius: 7, border: `1px solid ${C.red}`, background: "rgba(196,69,58,0.12)", color: C.red,
+            fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 12.5, cursor: "pointer",
+          }}
+        >
+          <Plus size={14} strokeWidth={2.5} /> Defense play
+        </button>
+      </div>
+
+      {diagrams.length > 1 && (
+        <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 12, paddingBottom: 2 }}>
+          {diagrams.map((d) => (
+            <PlayChip
+              key={d.id}
+              active={d.id === active.id}
+              onClick={() => setActiveId(d.id)}
+              category={d.category}
+              label={d.name}
+            />
+          ))}
+        </div>
+      )}
+
+      <div className="np-court-cap">
+        <CourtDiagram diagram={active} updateDiagram={updateActive} />
+      </div>
+    </Panel>
+  );
+}
+
+/* ---------------------------------- DELIVER: Draw Board (freehand) ---------------------------------- */
+
+function DrawBoardCanvas({ board, updateBoard }) {
+  const canvasRef = useRef(null);
+  const drawingRef = useRef(false);
+  const strokeRef = useRef(null);
+  const [color, setColor] = useState(C.amber);
+  const [thick, setThick] = useState(false);
+  const [tool, setTool] = useState("pen");
+
+  const drawCourt = (ctx) => {
+    ctx.save();
+    ctx.strokeStyle = C.chalkFaint;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(10, 10, 480, 440);
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(210, 40); ctx.lineTo(290, 40); ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(250, 55, 9, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.strokeRect(190, 10, 120, 150);
+    ctx.setLineDash([6, 6]);
+    ctx.beginPath(); ctx.arc(250, 160, 60, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(250, 55, 25, Math.PI, 0, true); ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(30, 10); ctx.lineTo(30, 130);
+    ctx.arc(250, 130, 220, Math.PI, 0, true);
+    ctx.lineTo(470, 10);
+    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(10, 450); ctx.lineTo(490, 450); ctx.stroke();
+    ctx.beginPath(); ctx.arc(250, 450, 50, Math.PI, 0, false); ctx.stroke();
+    ctx.restore();
+  };
+
+  const drawStroke = (ctx, stroke) => {
+    if (!stroke) return;
+    ctx.save();
+    ctx.globalCompositeOperation = stroke.erase ? "destination-out" : "source-over";
+    if (stroke.points.length < 2) {
+      const p = stroke.points[0];
+      ctx.fillStyle = stroke.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, stroke.width / 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.strokeStyle = stroke.color;
+      ctx.lineWidth = stroke.width;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+      for (let i = 1; i < stroke.points.length; i++) ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawCourt(ctx);
+    board.strokes.forEach((s) => drawStroke(ctx, s));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board.id, board.strokes]);
+
+  const toPoint = (e) => {
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 500;
+    const y = ((e.clientY - rect.top) / rect.height) * 460;
+    return { x, y };
+  };
+
+  const strokeWidth = () => (tool === "eraser" ? (thick ? 34 : 20) : thick ? 5 : 2.5);
+
+  const handleDown = (e) => {
+    e.target.setPointerCapture(e.pointerId);
+    const p = toPoint(e);
+    strokeRef.current = { points: [p], color, width: strokeWidth(), erase: tool === "eraser" };
+    drawingRef.current = true;
+    drawStroke(canvasRef.current.getContext("2d"), strokeRef.current);
+  };
+  const handleMove = (e) => {
+    if (!drawingRef.current || !strokeRef.current) return;
+    const p = toPoint(e);
+    const pts = strokeRef.current.points;
+    pts.push(p);
+    const prev = pts[pts.length - 2];
+    const ctx = canvasRef.current.getContext("2d");
+    ctx.save();
+    ctx.globalCompositeOperation = strokeRef.current.erase ? "destination-out" : "source-over";
+    ctx.strokeStyle = strokeRef.current.color;
+    ctx.lineWidth = strokeRef.current.width;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(prev.x, prev.y);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    ctx.restore();
+  };
+  const handleUp = () => {
+    if (!drawingRef.current || !strokeRef.current) return;
+    drawingRef.current = false;
+    const finishedStroke = strokeRef.current;
+    strokeRef.current = null;
+    updateBoard((b) => ({ ...b, strokes: [...b.strokes, finishedStroke] }));
+  };
+
+  const undo = () => updateBoard((b) => ({ ...b, strokes: b.strokes.slice(0, -1) }));
+  const clearAll = () => updateBoard((b) => ({ ...b, strokes: [] }));
+
+  const COLORS = [C.chalk, C.amber, C.sage, C.red];
+
+  return (
+    <div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 10 }}>
+        <div style={{ display: "flex", gap: 6 }}>
+          {COLORS.map((c) => (
+            <button
+              key={c}
+              onClick={() => { setColor(c); setTool("pen"); }}
+              style={{
+                width: 26, height: 26, borderRadius: "50%", background: c,
+                border: `2px solid ${tool === "pen" && color === c ? C.chalk : "transparent"}`,
+                boxShadow: `0 0 0 1px ${C.line}`, cursor: "pointer", flexShrink: 0, padding: 0,
+              }}
+            />
+          ))}
+        </div>
+        <ToolBtn active={tool === "pen"} onClick={() => setTool("pen")} icon={Edit3} label="Pen" />
+        <ToolBtn active={tool === "eraser"} onClick={() => setTool("eraser")} icon={Eraser} label="Erase" />
+        <ToolBtn active={thick} onClick={() => setThick((t) => !t)} icon={PenTool} label={thick ? "Thick" : "Thin"} />
+        <ToolBtn active={false} onClick={undo} icon={Undo2} label="Undo" />
+        <ToolBtn active={false} onClick={clearAll} icon={RotateCcw} label="Clear" />
+      </div>
+      <canvas
+        ref={canvasRef}
+        width={500}
+        height={460}
+        onPointerDown={handleDown}
+        onPointerMove={handleMove}
+        onPointerUp={handleUp}
+        onPointerLeave={handleUp}
+        style={{
+          width: "100%", touchAction: "none", background: C.bg2, border: `1px solid ${C.line}`,
+          borderRadius: 10, cursor: "crosshair", display: "block",
+        }}
+      />
+    </div>
+  );
+}
+
+function DrawBoardTab({ boards, setBoards, activeId, setActiveId }) {
+  const active = boards.find((b) => b.id === activeId) || boards[0];
+  const updateActive = (fn) => setBoards((bs) => bs.map((b) => (b.id === active.id ? fn(b) : b)));
+
+  const newBoard = () => {
+    const b = { id: uid(), name: `Sketch ${boards.length + 1}`, strokes: [] };
+    setBoards((bs) => [...bs, b]);
+    setActiveId(b.id);
+  };
+  const deleteBoard = () => {
+    if (boards.length <= 1) return;
+    const rest = boards.filter((b) => b.id !== active.id);
+    setBoards(rest);
+    setActiveId(rest[0].id);
+  };
+
+  return (
+    <Panel icon={Edit3} title="Draw Board" subtitle="Freehand-sketch plays on a blank court — stylus friendly">
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+        <input
+          value={active.name}
+          onChange={(e) => updateActive((b) => ({ ...b, name: e.target.value }))}
+          style={{
+            flex: 1, background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 7, padding: "8px 10px",
+            color: C.chalk, fontFamily: "'Anton', sans-serif", fontSize: 15, letterSpacing: "0.02em", outline: "none",
+          }}
+        />
+        <IconBtn onClick={newBoard}><Plus size={14} /></IconBtn>
+        <IconBtn onClick={deleteBoard} danger><Trash2 size={14} /></IconBtn>
+      </div>
+
+      {boards.length > 1 && (
+        <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 12, paddingBottom: 2 }}>
+          {boards.map((b) => (
+            <TabPill key={b.id} active={b.id === active.id} onClick={() => setActiveId(b.id)} icon={Edit3} label={b.name} />
+          ))}
+        </div>
+      )}
+
+      <div className="np-court-cap">
+        <DrawBoardCanvas board={active} updateBoard={updateActive} />
+      </div>
+    </Panel>
+  );
+}
+
+/* ---------------------------------- REVIEW ---------------------------------- */
+
+function CoachingTab({ coaching, setCoaching }) {
+  const set = (k) => (v) => setCoaching((c) => ({ ...c, [k]: v }));
+  return (
+    <Panel icon={Gauge} title="My Coaching" subtitle="Rate your preparation, energy and communication">
+      <RatingRow label="Preparation" description="How ready were you for this session?" value={coaching.prep} onChange={set("prep")} />
+      <RatingRow label="Energy" description="How was your energy on the floor?" value={coaching.energy} onChange={set("energy")} />
+      <RatingRow label="Communication" description="How clearly did you get your points across?" value={coaching.communication} onChange={set("communication")} />
+    </Panel>
+  );
+}
+
+function ExperienceTab({ experience, setExperience }) {
+  const set = (k) => (v) => setExperience((c) => ({ ...c, [k]: v }));
+  return (
+    <Panel icon={Smile} title="Player Experience" subtitle="Track player fun, problem solving and connections">
+      <RatingRow label="Fun" description="Did players enjoy the session?" value={experience.fun} onChange={set("fun")} />
+      <RatingRow label="Problem solving" description="Did players think for themselves?" value={experience.problemSolving} onChange={set("problemSolving")} />
+      <RatingRow label="Connection" description="Did players connect with you and each other?" value={experience.connection} onChange={set("connection")} />
+    </Panel>
+  );
+}
+
+function GratitudeTab({ gratitude, setGratitude }) {
+  return (
+    <Panel icon={Heart} title="Gratitude" subtitle="Gain motivation, focus and purpose">
+      <TextAreaField value={gratitude} onChange={setGratitude} placeholder="What are you grateful for from today's session?" rows={5} />
+    </Panel>
+  );
+}
+
+function DevelopmentTab({ development, setDevelopment }) {
+  return (
+    <Panel icon={TrendingUp} title="Development" subtitle="Grow as a coach by reflecting on what you learned">
+      <TextAreaField value={development} onChange={setDevelopment} placeholder="What did you learn today? How will you grow from it?" rows={5} />
+    </Panel>
+  );
+}
+
+function ReviewNotesTab({ worked, setWorked, positives, setPositives, next, setNext }) {
+  return (
+    <Panel icon={NotebookPen} title="Notes" subtitle="Record what worked and reminders for next session">
+      <TextAreaField label="What worked" value={worked} onChange={setWorked} placeholder="Drills or moments that landed well" rows={3} />
+      <TextAreaField label="Positives" value={positives} onChange={setPositives} placeholder="Highlights from the session" rows={3} />
+      <TextAreaField label="Reminders for next session" value={next} onChange={setNext} placeholder="What to carry into the next practice" rows={3} />
+    </Panel>
+  );
+}
+
+function SubHeading({ children }) {
+  return (
+    <h3
+      style={{
+        fontFamily: "'Inter', sans-serif", fontSize: 12, fontWeight: 700, color: C.sage,
+        textTransform: "uppercase", letterSpacing: "0.05em", margin: "18px 0 8px",
+      }}
+    >
+      {children}
+    </h3>
+  );
+}
+
+function TrendsTab({ sessions, onSave }) {
+  const data = sessions.map((s, i) => ({
+    label: `#${i + 1}`,
+    date: s.date.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+    Preparation: s.coaching.prep,
+    Energy: s.coaching.energy,
+    Communication: s.coaching.communication,
+    Fun: s.experience.fun,
+    "Problem solving": s.experience.problemSolving,
+    Connection: s.experience.connection,
+  }));
+
+  const tooltipStyle = {
+    background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8, fontFamily: "'Inter', sans-serif", fontSize: 12,
+  };
+  const legendStyle = { fontFamily: "'Inter', sans-serif", fontSize: 11, color: C.chalkDim };
+
+  return (
+    <Panel icon={Activity} title="Trends" subtitle="See how practices are trending over time">
+      <button
+        onClick={onSave}
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%", padding: "10px 14px",
+          borderRadius: 8, border: "none", background: C.amber, color: C.amberInk, fontFamily: "'Inter', sans-serif",
+          fontWeight: 700, fontSize: 13.5, cursor: "pointer", marginBottom: 6,
+        }}
+      >
+        <Save size={15} strokeWidth={2.5} /> Save this session &amp; start a new one
+      </button>
+      <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, color: C.chalkFaint, margin: "0 0 4px" }}>
+        Archives today's ratings and targets, then clears Targets, ratings, gratitude, development and notes for your next practice. Roster and saved plays stay put.
+      </p>
+
+      {sessions.length === 0 ? (
+        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: C.chalkFaint, fontStyle: "italic", marginTop: 14 }}>
+          No sessions saved yet — save your first one above to start tracking trends.
+        </p>
+      ) : (
+        <>
+          <div className="np-charts-grid">
+            <div>
+              <SubHeading>My Coaching</SubHeading>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                  <CartesianGrid stroke={C.line} vertical={false} />
+                  <XAxis dataKey="date" stroke={C.chalkDim} fontSize={10.5} tickLine={false} />
+                  <YAxis domain={[1, 5]} allowDecimals={false} stroke={C.chalkDim} fontSize={10.5} tickLine={false} />
+                  <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: C.chalk }} />
+                  <Legend wrapperStyle={legendStyle} />
+                  <Line type="monotone" dataKey="Preparation" stroke={C.amber} strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="Energy" stroke={C.sage} strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="Communication" stroke={C.red} strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div>
+              <SubHeading>Player Experience</SubHeading>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                  <CartesianGrid stroke={C.line} vertical={false} />
+                  <XAxis dataKey="date" stroke={C.chalkDim} fontSize={10.5} tickLine={false} />
+                  <YAxis domain={[1, 5]} allowDecimals={false} stroke={C.chalkDim} fontSize={10.5} tickLine={false} />
+                  <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: C.chalk }} />
+                  <Legend wrapperStyle={legendStyle} />
+                  <Line type="monotone" dataKey="Fun" stroke={C.amber} strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="Problem solving" stroke={C.sage} strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="Connection" stroke={C.red} strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <SubHeading>Session log</SubHeading>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {[...sessions].reverse().map((s) => (
+              <div
+                key={s.id}
+                style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center", background: C.bg2,
+                  border: `1px solid ${C.line}`, borderRadius: 7, padding: "8px 10px",
+                }}
+              >
+                <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 12.5, color: C.chalk }}>
+                  {s.date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+                </span>
+                <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 11.5, color: C.chalkDim }}>
+                  {s.attendance} present · {s.targetsDone}/{s.targetsTotal} targets
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </Panel>
+  );
+}
+
+/* ---------------------------------- GAME (live, shared across coaches' tablets) ---------------------------------- */
+
+function generateGameCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous 0/O/1/I
+  let code = "";
+  for (let i = 0; i < 5; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+function emptyStats() {
+  return {
+    pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, foul: 0, to: 0,
+    fgm: 0, fga: 0, ftm: 0, fta: 0,
+    onCourt: false, secondsPlayed: 0, checkedInAt: null,
+  };
+}
+
+const STAT_LABELS = { reb: "REB", ast: "AST", stl: "STL", blk: "BLK", foul: "FOUL", to: "TO" };
+
+function formatMinutes(totalSeconds) {
+  const s = Math.max(0, Math.round(totalSeconds));
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+function livePlayedSeconds(p) {
+  const extra = p.onCourt && p.checkedInAt ? (Date.now() - p.checkedInAt) / 1000 : 0;
+  return (p.secondsPlayed || 0) + extra;
+}
+
+function LiveGameTab({ players, prefillOpponent, onConsumePrefill }) {
+  const [code, setCode] = useState("");
+  const [codeInput, setCodeInput] = useState("");
+  const [game, setGame] = useState(null);
+  const [selectedPlayerId, setSelectedPlayerId] = useState(null);
+  const [status, setStatus] = useState("");
+  const [lastSynced, setLastSynced] = useState(null);
+  const [myLabel, setMyLabel] = useState("Coach");
+  const [messageDraft, setMessageDraft] = useState("");
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 10000);
+    return () => clearInterval(id);
+  }, []);
+
+  const storageKey = (c) => `game:${c}`;
+
+  const saveGame = async (nextGame, c) => {
+    try {
+      await window.storage.set(storageKey(c || code), JSON.stringify(nextGame), true);
+    } catch (e) {
+      setStatus("Couldn't sync that update — check your connection.");
+    }
+  };
+
+  const pullGame = async (c) => {
+    try {
+      const res = await window.storage.get(storageKey(c), true);
+      if (res && res.value) {
+        setGame(JSON.parse(res.value));
+        setLastSynced(new Date());
+      }
+    } catch (e) {
+      /* not found yet — ignore during polling */
+    }
+  };
+
+  const startNewGame = async () => {
+    const source = players.some((p) => p.present) ? players.filter((p) => p.present) : players;
+    const c = generateGameCode();
+    const initial = {
+      teamName: "Us",
+      opponentName: prefillOpponent || "Opponent",
+      usScore: 0,
+      oppScore: 0,
+      players: source.map((p) => ({ id: p.id, name: p.name, ...emptyStats() })),
+      messages: [],
+      updatedAt: Date.now(),
+    };
+    setStatus("");
+    setCode(c);
+    setGame(initial);
+    setSelectedPlayerId(initial.players[0] ? initial.players[0].id : null);
+    if (onConsumePrefill) onConsumePrefill();
+    await saveGame(initial, c);
+  };
+
+  const joinGame = async () => {
+    const c = codeInput.trim().toUpperCase();
+    if (!c) return;
+    setStatus("Joining…");
+    try {
+      const res = await window.storage.get(storageKey(c), true);
+      if (res && res.value) {
+        const remote = JSON.parse(res.value);
+        if (!remote.messages) remote.messages = [];
+        setCode(c);
+        setGame(remote);
+        setSelectedPlayerId(remote.players[0] ? remote.players[0].id : null);
+        setLastSynced(new Date());
+        setStatus("");
+      } else {
+        setStatus("Game not found — double-check the code.");
+      }
+    } catch (e) {
+      setStatus("Game not found — double-check the code.");
+    }
+  };
+
+  const leaveGame = () => {
+    setCode("");
+    setGame(null);
+    setSelectedPlayerId(null);
+    setStatus("");
+  };
+
+  useEffect(() => {
+    if (!code) return undefined;
+    const id = setInterval(() => pullGame(code), 4000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code]);
+
+  const updateGame = (fn) => {
+    setGame((g) => {
+      const next = { ...fn(g), updatedAt: Date.now() };
+      saveGame(next);
+      return next;
+    });
+  };
+
+  const addTeamScore = (n) => updateGame((g) => ({ ...g, usScore: Math.max(0, g.usScore + n) }));
+  const addOppScore = (n) => updateGame((g) => ({ ...g, oppScore: Math.max(0, g.oppScore + n) }));
+  const bumpStat = (playerId, key, delta) => {
+    updateGame((g) => ({
+      ...g,
+      usScore: key === "pts" ? Math.max(0, g.usScore + delta) : g.usScore,
+      players: g.players.map((p) => (p.id === playerId ? { ...p, [key]: Math.max(0, (p[key] || 0) + delta) } : p)),
+    }));
+  };
+
+  const logShot = (playerId, points, made) => {
+    updateGame((g) => ({
+      ...g,
+      usScore: made ? Math.max(0, g.usScore + points) : g.usScore,
+      players: g.players.map((p) => {
+        if (p.id !== playerId) return p;
+        if (points === 1) {
+          return { ...p, ftm: (p.ftm || 0) + (made ? 1 : 0), fta: (p.fta || 0) + 1, pts: made ? p.pts + 1 : p.pts };
+        }
+        return { ...p, fgm: (p.fgm || 0) + (made ? 1 : 0), fga: (p.fga || 0) + 1, pts: made ? p.pts + points : p.pts };
+      }),
+    }));
+  };
+
+  const toggleCourt = (playerId) => {
+    updateGame((g) => ({
+      ...g,
+      players: g.players.map((p) => {
+        if (p.id !== playerId) return p;
+        if (p.onCourt) {
+          const elapsed = p.checkedInAt ? (Date.now() - p.checkedInAt) / 1000 : 0;
+          return { ...p, onCourt: false, secondsPlayed: (p.secondsPlayed || 0) + elapsed, checkedInAt: null };
+        }
+        return { ...p, onCourt: true, checkedInAt: Date.now() };
+      }),
+    }));
+  };
+
+  const sendMessage = (text) => {
+    if (!text.trim()) return;
+    updateGame((g) => ({
+      ...g,
+      messages: [...(g.messages || []), { id: uid(), text: text.trim(), from: myLabel || "Coach", time: Date.now() }].slice(-30),
+    }));
+    setMessageDraft("");
+  };
+
+  const subtitle = code ? `Game code ${code} · shared with your assistant coach` : "Track score and player stats, synced across coaches' tablets";
+
+  return (
+    <Panel icon={Radio} title="Live Game" subtitle={subtitle}>
+      {!code || !game ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div>
+            {prefillOpponent && (
+              <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 11.5, color: C.amber, margin: "0 0 8px" }}>
+                Starting vs <strong>{prefillOpponent}</strong>, from your Schedule.
+              </p>
+            )}
+            <button
+              onClick={startNewGame}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%", padding: "10px 14px",
+                borderRadius: 8, border: "none", background: C.amber, color: C.amberInk, fontFamily: "'Inter', sans-serif",
+                fontWeight: 700, fontSize: 13.5, cursor: "pointer",
+              }}
+            >
+              <Radio size={15} /> Start a new game
+            </button>
+            <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 11.5, color: C.chalkDim, margin: "8px 0 0" }}>
+              Creates a game code. Share it with your assistant coach so their tablet syncs to this same game.
+            </p>
+          </div>
+
+          <div style={{ borderTop: `1px dashed ${C.line}`, paddingTop: 16 }}>
+            <p
+              style={{
+                fontFamily: "'Inter', sans-serif", fontSize: 12, fontWeight: 600, color: C.sage,
+                textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 8px",
+              }}
+            >
+              Already have a code?
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <TextInput value={codeInput} onChange={(v) => setCodeInput(v.toUpperCase())} placeholder="Enter game code" onEnter={joinGame} />
+              <button
+                onClick={joinGame}
+                style={{
+                  padding: "0 16px", borderRadius: 7, border: `1px solid ${C.amberDim}`, background: "transparent", color: C.amber,
+                  fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer",
+                }}
+              >
+                Join
+              </button>
+            </div>
+          </div>
+
+          {status && (
+            <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: status.includes("Couldn't") || status.includes("not found") ? C.red : C.chalkDim }}>
+              {status}
+            </p>
+          )}
+          <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 10.5, color: C.chalkFaint }}>
+            Anyone with the game code can view and update this game's score and stats — great for you and an assistant coach, just don't post the code publicly.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <div>
+              <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 11, color: C.amber, letterSpacing: "0.05em" }}>
+                CODE {code}
+              </span>
+              <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 10, color: C.chalkFaint }}>
+                {lastSynced ? `Synced ${lastSynced.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : "Not yet synced"}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <IconBtn onClick={() => pullGame(code)}><RefreshCw size={14} /></IconBtn>
+              <IconBtn onClick={leaveGame} danger><LogOut size={14} /></IconBtn>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "flex", alignItems: "center", gap: 10, background: C.bg2, border: `1px solid ${C.line}`,
+              borderRadius: 10, padding: "16px 10px", marginBottom: 16,
+            }}
+          >
+            <div style={{ flex: 1, textAlign: "center" }}>
+              <input
+                value={game.teamName}
+                onChange={(e) => updateGame((g) => ({ ...g, teamName: e.target.value }))}
+                style={{
+                  width: "100%", textAlign: "center", background: "transparent", border: "none", outline: "none",
+                  color: C.chalk, fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 12.5, marginBottom: 2,
+                }}
+              />
+              <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 38, fontWeight: 700, color: C.amber, lineHeight: 1 }}>
+                {game.usScore}
+              </div>
+              <div style={{ display: "flex", gap: 4, justifyContent: "center", marginTop: 8 }}>
+                {[1, 2, 3].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => addTeamScore(n)}
+                    style={{
+                      width: 30, height: 26, borderRadius: 6, border: `1px solid ${C.amberDim}`, background: "rgba(224,135,44,0.14)",
+                      color: C.amber, fontFamily: "'Space Mono', monospace", fontWeight: 700, fontSize: 12, cursor: "pointer",
+                    }}
+                  >
+                    +{n}
+                  </button>
+                ))}
+                <button onClick={() => addTeamScore(-1)} style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${C.line}`, background: "transparent", color: C.chalkDim, cursor: "pointer" }}>
+                  <Minus size={12} style={{ margin: "0 auto" }} />
+                </button>
+              </div>
+            </div>
+
+            <span style={{ fontFamily: "'Anton', sans-serif", fontSize: 16, color: C.chalkFaint, flexShrink: 0 }}>VS</span>
+
+            <div style={{ flex: 1, textAlign: "center" }}>
+              <input
+                value={game.opponentName}
+                onChange={(e) => updateGame((g) => ({ ...g, opponentName: e.target.value }))}
+                style={{
+                  width: "100%", textAlign: "center", background: "transparent", border: "none", outline: "none",
+                  color: C.chalk, fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 12.5, marginBottom: 2,
+                }}
+              />
+              <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 38, fontWeight: 700, color: C.chalk, lineHeight: 1 }}>
+                {game.oppScore}
+              </div>
+              <div style={{ display: "flex", gap: 4, justifyContent: "center", marginTop: 8 }}>
+                {[1, 2, 3].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => addOppScore(n)}
+                    style={{
+                      width: 30, height: 26, borderRadius: 6, border: `1px solid ${C.line}`, background: C.panel3,
+                      color: C.chalk, fontFamily: "'Space Mono', monospace", fontWeight: 700, fontSize: 12, cursor: "pointer",
+                    }}
+                  >
+                    +{n}
+                  </button>
+                ))}
+                <button onClick={() => addOppScore(-1)} style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${C.line}`, background: "transparent", color: C.chalkDim, cursor: "pointer" }}>
+                  <Minus size={12} style={{ margin: "0 auto" }} />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <SubHeading>Coach comms</SubHeading>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 11.5, color: C.chalkDim, flexShrink: 0 }}>Sending as</span>
+              <input
+                value={myLabel}
+                onChange={(e) => setMyLabel(e.target.value)}
+                placeholder="Coach"
+                style={{
+                  flex: 1, maxWidth: 140, background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 6, padding: "5px 9px",
+                  color: C.chalk, fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 12, outline: "none",
+                }}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+              {["Timeout!", "Foul trouble", "Pull him", "Sub now", "Nice adjustment"].map((preset) => (
+                <button
+                  key={preset}
+                  onClick={() => sendMessage(preset)}
+                  style={{
+                    padding: "6px 10px", borderRadius: 999, border: `1px solid ${C.amberDim}`, background: "rgba(224,135,44,0.1)",
+                    color: C.amber, fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 11.5, cursor: "pointer",
+                  }}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+              <TextInput value={messageDraft} onChange={setMessageDraft} placeholder="Type a quick message…" onEnter={() => sendMessage(messageDraft)} />
+              <button
+                onClick={() => sendMessage(messageDraft)}
+                style={{
+                  padding: "0 14px", borderRadius: 7, border: "none", background: C.amber, color: C.amberInk,
+                  fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer",
+                }}
+              >
+                Send
+              </button>
+            </div>
+
+            {(game.messages || []).length === 0 ? (
+              <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: C.chalkFaint, fontStyle: "italic" }}>
+                No messages yet — send one and it'll show up on the other coach's tablet within a few seconds.
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column-reverse", gap: 6, maxHeight: 180, overflowY: "auto" }}>
+                {(game.messages || []).slice().reverse().map((m) => (
+                  <div
+                    key={m.id}
+                    style={{
+                      background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 7, padding: "7px 10px",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                      <span style={{ fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 11, color: C.sage }}>{m.from}</span>
+                      <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 10, color: C.chalkFaint }}>
+                        {new Date(m.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                    <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: C.chalk }}>{m.text}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {game.players.length === 0 ? (
+            <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: C.chalkFaint, fontStyle: "italic" }}>
+              No players in this game — mark players Present in Attendance before starting your next game.
+            </p>
+          ) : (
+            <>
+              <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 12, paddingBottom: 2 }}>
+                {game.players.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setSelectedPlayerId(p.id)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 6,
+                      padding: "7px 12px", borderRadius: 999, border: `1px solid ${p.id === selectedPlayerId ? C.amber : C.line}`,
+                      background: p.id === selectedPlayerId ? C.amber : "transparent", color: p.id === selectedPlayerId ? C.amberInk : C.chalkDim,
+                      fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 12.5, whiteSpace: "nowrap", cursor: "pointer", flexShrink: 0,
+                
