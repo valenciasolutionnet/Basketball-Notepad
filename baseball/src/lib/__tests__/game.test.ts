@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createGame, currentBatterId, reduce, totals, type GameAction } from "../game";
+import { createGame, currentBatterId, isGameOver, reduce, totals, type GameAction } from "../game";
 import { battingLine } from "../stats";
 import type { LiveGame } from "../types";
 
@@ -81,5 +81,59 @@ describe("batting line", () => {
     expect(l.avg).toBeCloseTo(2 / 3);
     expect(l.obp).toBeCloseTo(3 / 5);
     expect(l.slg).toBeCloseTo(5 / 3);
+  });
+});
+
+describe("game flow controls", () => {
+  const threeOuts: GameAction[] = [{ type: "out" }, { type: "out" }, { type: "out" }];
+
+  it("isGameOver: home team ahead after the top of the last inning", () => {
+    let g = { ...game(true), scheduledInnings: 1 };
+    g = run(g, { type: "oppRun", delta: 1 }, ...threeOuts); // top 1: them 1
+    expect(isGameOver(g)).toBe(false); // bottom 1, home trails
+    g = run(g, { type: "result", result: "HR" }, { type: "result", result: "HR" }); // walk-off 2-1
+    expect(isGameOver(g)).toBe(true);
+  });
+
+  it("isGameOver: tie after regulation goes to extras, decided after the next full inning", () => {
+    let g = { ...game(false), scheduledInnings: 1 }; // we are away
+    g = run(g, ...threeOuts, ...threeOuts); // 0-0 after 1 → top 2
+    expect(g.inning).toBe(2);
+    expect(isGameOver(g)).toBe(false);
+    g = run(g, { type: "result", result: "HR" }); // away leads in top 2
+    expect(isGameOver(g)).toBe(false); // home still bats
+    g = run(g, ...threeOuts, ...threeOuts); // bottom 2 scoreless → top 3
+    expect(isGameOver(g)).toBe(true);
+  });
+
+  it("setBatter jumps within the current lap; substitute swaps the order slot and bases", () => {
+    let g = run(game(), { type: "result", result: "1B" }); // A on first, B up
+    g = run(g, { type: "setBatter", index: 3 });
+    expect(currentBatterId(g)).toBe("d");
+    g = { ...g, players: [...g.players, { id: "e", name: "E", number: "" }] };
+    g = run(g, { type: "substitute", slot: 0, playerId: "e" });
+    expect(g.battingOrder[0]).toBe("e");
+    expect(g.bases.first).toBe("e");
+    expect(run(g, { type: "substitute", slot: 1, playerId: "e" })).toBe(g); // already in the order
+  });
+});
+
+describe("fielder's choice", () => {
+  it("retires the lead runner when nobody is forced", () => {
+    let g = run(game(), { type: "result", result: "2B" }); // A on second
+    g = run(g, { type: "result", result: "FC" });
+    expect(g.bases).toEqual({ first: "b", second: null, third: null });
+    expect(g.outs).toBe(1);
+  });
+  it("is a no-op with the bases empty", () => {
+    const g = game();
+    expect(reduce(g, { type: "result", result: "FC" })).toBe(g);
+  });
+  it("restore puts back a snapshot as a new revision", () => {
+    const g0 = game();
+    const g1 = run(g0, { type: "result", result: "HR" });
+    const g2 = reduce(g1, { type: "restore", game: g0 });
+    expect(totals(g2).us).toBe(0);
+    expect(g2.rev).toBe(g1.rev + 1);
   });
 });

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Radio, LogOut, Undo2, Flag, Send, Cloud, CloudOff, Loader2, Minus, Plus, Save, Copy } from "lucide-react";
 import { useNotepad } from "../../store";
 import { useLiveGame, useLiveGameStore, fetchGame } from "./useLiveGame";
-import { createGame, currentBatterId, generateGameCode, OPP, totals, weAreBatting, type GameAction } from "../../lib/game";
+import { createGame, currentBatterId, generateGameCode, isGameOver, OPP, totals, weAreBatting, type GameAction } from "../../lib/game";
 import { battingByPlayer, rate } from "../../lib/stats";
 import { availability, CATCH_AFTER_PITCH_LIMIT, dailyMax, restDays, toDay } from "../../lib/pitching";
 import type { BaseState, LiveGame, PlateResult } from "../../lib/types";
@@ -12,7 +12,7 @@ import { Button, Empty, Panel, Segmented, SubHeading, TextInput, cx, inputCls } 
 
 /* ---------------------------------- setup --------------------------------- */
 
-function StartGame({ onStart }: { onStart: (g: LiveGame) => void }) {
+function StartGame({ onStart }: { onStart: (g: LiveGame, ackedRev?: number) => void }) {
   const players = useNotepad((s) => s.players);
   const lineups = useNotepad((s) => s.lineups);
   const teamName = useNotepad((s) => s.teamName);
@@ -50,8 +50,7 @@ function StartGame({ onStart }: { onStart: (g: LiveGame) => void }) {
     try {
       const g = await fetchGame(c);
       if (!g) return setJoinMsg("Game not found — check the code.");
-      useLiveGameStore.getState().setGame(g);
-      useLiveGameStore.getState().setStatus("synced");
+      onStart(g, g.rev);
       setJoinMsg("");
     } catch {
       setJoinMsg("Couldn't reach live sync. Check your connection.");
@@ -263,8 +262,11 @@ function DefenseControls({ g, dispatch }: { g: LiveGame; dispatch: (a: GameActio
   const outings = useNotepad((s) => s.outings);
   const pitcher = players.find((p) => p.id === g.pitcherId);
   const count = g.pitcherId ? g.pitchCounts[g.pitcherId] ?? 0 : 0;
-  const today = toDay(new Date());
-  const prior = pitcher ? availability(outings, pitcher.id, pitcher.age, today) : null;
+  // Count against the day the game started (games can run past midnight), and
+  // skip this game's own saved outings so Save → Reopen doesn't double-count.
+  const today = g.startedDay ?? toDay(new Date());
+  const otherOutings = outings.filter((o) => o.gameId !== g.code);
+  const prior = pitcher ? availability(otherOutings, pitcher.id, pitcher.age, today) : null;
   const max = pitcher ? dailyMax(pitcher.age) : null;
   const totalToday = count + (prior?.pitchesToday ?? 0);
   const pct = max ? Math.min(100, (totalToday / max) * 100) : 0;
@@ -318,21 +320,52 @@ function DefenseControls({ g, dispatch }: { g: LiveGame; dispatch: (a: GameActio
 
 /* ---------------------------------- extras --------------------------------- */
 
-function BoxScore({ g }: { g: LiveGame }) {
+function BoxScore({ g, dispatch }: { g: LiveGame; dispatch: (a: GameAction) => void }) {
   const lines = battingByPlayer(g.plateAppearances, g.runsScored, g.stolenBases);
+  const [subSlot, setSubSlot] = useState<number | null>(null);
+  const n = g.battingOrder.length;
+  const upSlot = n ? g.batterIndex % n : -1;
+  const bench = g.players.filter((p) => !g.battingOrder.includes(p.id));
+  const editable = !g.final && weAreBatting(g);
   return (
     <div className="-mx-4 overflow-x-auto px-4">
-      <table className="w-full min-w-[420px] text-[12.5px]">
+      <table className="w-full min-w-[440px] text-[12.5px]">
         <thead className="text-[11px] text-chalk-dim">
-          <tr>{["Batter", "AB", "R", "H", "RBI", "BB", "K", "SB", "AVG"].map((h) => <th key={h} className={cx("py-1 font-semibold", h === "Batter" ? "text-left" : "text-center")}>{h}</th>)}</tr>
+          <tr>{["", "Batter", "AB", "R", "H", "RBI", "BB", "K", "SB", "AVG"].map((h, i) => <th key={i} className={cx("py-1 font-semibold", h === "Batter" ? "text-left" : "text-center")}>{h}</th>)}</tr>
         </thead>
         <tbody className="font-mono">
-          {g.battingOrder.map((id) => {
+          {g.battingOrder.map((id, slot) => {
             const p = g.players.find((x) => x.id === id);
             const l = lines.get(id);
+            const up = slot === upSlot && !g.final;
             return (
-              <tr key={id} className="border-t border-line">
-                <td className="max-w-32 truncate py-1.5 font-sans font-semibold">{p?.name}</td>
+              <tr key={id} className={cx("border-t border-line", up && weAreBatting(g) && "bg-clay/10")}>
+                <td className="w-7 text-center">
+                  {editable ? (
+                    <button type="button" aria-label={`Set ${p?.name} as batter`} title="Now batting"
+                      onClick={() => dispatch({ type: "setBatter", index: slot })}
+                      className={cx("size-7 rounded-md text-xs", up ? "bg-clay font-bold text-clay-ink" : "text-chalk-dim hover:bg-turf-700")}>
+                      {slot + 1}
+                    </button>
+                  ) : <span className="text-chalk-dim">{slot + 1}</span>}
+                </td>
+                <td className="max-w-36 py-1.5 font-sans font-semibold">
+                  {subSlot === slot ? (
+                    <select autoFocus aria-label={`Substitute for ${p?.name}`} defaultValue=""
+                      onChange={(e) => { if (e.target.value) dispatch({ type: "substitute", slot, playerId: e.target.value }); setSubSlot(null); }}
+                      onBlur={() => setSubSlot(null)}
+                      className="w-full rounded-md border border-line bg-turf-950 py-1 text-xs">
+                      <option value="">Sub in…</option>
+                      {bench.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  ) : (
+                    <button type="button" disabled={g.final || !bench.length} onClick={() => setSubSlot(slot)}
+                      title={bench.length ? "Tap to substitute" : undefined}
+                      className="block max-w-36 truncate text-left disabled:cursor-default disabled:opacity-100">
+                      {p?.name}
+                    </button>
+                  )}
+                </td>
                 {[l?.ab, l?.r, l?.h, l?.rbi, l?.bb, l?.k, l?.sb].map((v, i) => <td key={i} className="text-center">{v ?? 0}</td>)}
                 <td className="text-center text-clay">{l ? rate(l.avg) : ".000"}</td>
               </tr>
@@ -340,6 +373,7 @@ function BoxScore({ g }: { g: LiveGame }) {
           })}
         </tbody>
       </table>
+      {!g.final && <p className="mt-2 text-[11px] text-chalk-dim">Tap a number to set who's up{bench.length ? " · tap a name to substitute" : ""}.</p>}
     </div>
   );
 }
@@ -412,7 +446,7 @@ export function LiveGameTab() {
       runsScored: g.runsScored,
       stolenBases: g.stolenBases,
       pitchCounts: g.pitchCounts,
-    }, toDay(new Date()));
+    }, g.startedDay ?? toDay(new Date()));
   };
 
   return (
@@ -439,6 +473,15 @@ export function LiveGameTab() {
           </div>
         </div>
       </section>
+
+      {!g.final && isGameOver(g) && (
+        <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-grass bg-grass/15 px-4 py-3">
+          <span className="text-[13.5px] font-semibold">
+            Game decided: {t.us > t.them ? `${g.teamName} win` : `${g.opponentName} win`} {Math.max(t.us, t.them)}–{Math.min(t.us, t.them)}.
+          </span>
+          <Button className="min-h-9" onClick={() => dispatch({ type: "final", value: true })}><Flag size={14} /> Mark final</Button>
+        </div>
+      )}
 
       {!g.final && (
         <section className="grid gap-4 md:grid-cols-[1fr_1.2fr]">
@@ -467,7 +510,7 @@ export function LiveGameTab() {
             <Button variant="ghost" className="min-h-9" onClick={() => confirm("Mark the game final?") && dispatch({ type: "final", value: true })}><Flag size={14} /> Final</Button>
           )}
         </div>
-        {view === "box" && <BoxScore g={g} />}
+        {view === "box" && <BoxScore g={g} dispatch={dispatch} />}
         {view === "chat" && <Messages g={g} dispatch={dispatch} />}
         {view === "log" && (
           <ul className="max-h-72 overflow-y-auto text-[12.5px]">
