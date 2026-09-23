@@ -19,8 +19,9 @@ const MAX_BYTES = 512 * 1024;
 const keyFor = (code: string) => `baseball-notepad:game:${code}`;
 
 async function upstash(command: string[]): Promise<{ result: unknown }> {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  // Vercel's Storage/Marketplace Upstash integration may expose KV_* names.
+  const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
   if (!url || !token) throw new Error("NOT_CONFIGURED");
   const res = await fetch(url, {
     method: "POST",
