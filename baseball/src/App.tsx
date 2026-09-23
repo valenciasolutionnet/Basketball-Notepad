@@ -14,6 +14,8 @@ import { PracticePlanTab } from "./features/deliver/PracticePlanTab";
 import { DiamondBoardTab } from "./features/deliver/DiamondBoardTab";
 import { LiveGameTab } from "./features/game/LiveGameTab";
 import { ReflectTab, SeasonTab } from "./features/review/ReviewTabs";
+import { CoverPage } from "./components/CoverPage";
+import { useLiveGameStore } from "./features/game/useLiveGame";
 
 // Recharts is the heaviest dependency; load it only when Trends is opened.
 const TrendsTab = lazy(() => import("./features/review/TrendsTab"));
@@ -90,17 +92,30 @@ function importData() {
 }
 
 export default function App() {
-  const [phase, setPhase] = useState<Phase>("plan");
+  // A live game in progress on launch: skip the cover and land on scoring.
+  const [phase, setPhase] = useState<Phase>(() => (useLiveGameStore.getState().game ? "game" : "plan"));
   const [planTab, setPlanTab] = useState<PlanKey>("roster");
   const [deliverTab, setDeliverTab] = useState<DeliverKey>("plan");
   const [reviewTab, setReviewTab] = useState<ReviewKey>("reflect");
   const teamName = useNotepad((s) => s.teamName);
+  const [showCover, setShowCover] = useState(() => !useLiveGameStore.getState().game);
+
+  if (showCover) {
+    return (
+      <CoverPage
+        onStart={() => { setShowCover(false); window.scrollTo(0, 0); }}
+        onJoin={() => { setPhase("game"); setShowCover(false); window.scrollTo(0, 0); }}
+      />
+    );
+  }
 
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="no-print sticky top-0 z-20 border-b border-line bg-turf-900/95 backdrop-blur">
         <div className="mx-auto flex max-w-4xl items-center gap-2.5 px-4 py-3">
-          <BaseballMark />
+          <button type="button" onClick={() => setShowCover(true)} aria-label="Show cover page" title="Home" className="shrink-0 rounded-full">
+            <BaseballMark />
+          </button>
           <div className="min-w-0 flex-1">
             <h1 className="font-display text-xl uppercase leading-none tracking-wide">Baseball Notepad</h1>
             {teamName && <p className="truncate text-[11px] text-chalk-dim">{teamName}</p>}
