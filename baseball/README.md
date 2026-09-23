@@ -28,7 +28,7 @@ npm run build      # typecheck + production build
 ## Deploy (Vercel)
 
 1. Import the repo into Vercel and set **Root Directory** to `baseball`. Vercel detects the Vite preset on its own.
-2. Create an Upstash Redis database and add `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` as environment variables.
+2. Add an Upstash Redis database. Either connect it from the Vercel project's **Storage** tab (this sets the `KV_REST_API_*` variables), or create it at upstash.com and add `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` as environment variables.
 3. Deploy. If those variables are missing, Live Game still works on a single device.
 
 Data stays in the browser. Use the header's backup (download) and restore (upload) buttons to move it between devices.
