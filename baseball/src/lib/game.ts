@@ -62,6 +62,22 @@ export function totals(g: LiveGame): { us: number; them: number } {
   return { us: sum(g.runsUs), them: sum(g.runsThem) };
 }
 
+/**
+ * True once regulation (or an extra inning) is decided: home team ahead in
+ * the bottom of the last scheduled inning or later (covers walk-offs and not
+ * needing the bottom half), or the previous full inning ended untied.
+ */
+export function isGameOver(g: LiveGame): boolean {
+  if (g.inning < g.scheduledInnings) return false;
+  const t = totals(g);
+  const home = g.weAreHome ? t.us : t.them;
+  const away = g.weAreHome ? t.them : t.us;
+  if (g.half === "bottom") return home > away;
+  if (g.inning === g.scheduledInnings) return false;
+  const awayRunsThisHalf = (g.weAreHome ? g.runsThem : g.runsUs)[g.inning - 1] ?? 0;
+  return away - awayRunsThisHalf !== home;
+}
+
 export type GameAction =
   | { type: "pitch"; kind: "ball" | "strike" | "foul" }
   | { type: "result"; result: PlateResult }
@@ -72,6 +88,7 @@ export type GameAction =
   | { type: "out" }
   | { type: "setPitcher"; playerId: Id | null }
   | { type: "setBatter"; index: number }
+  | { type: "substitute"; slot: number; playerId: Id }
   | { type: "endHalf" }
   | { type: "final"; value: boolean }
   | { type: "message"; from: string; text: string }
@@ -339,8 +356,24 @@ function apply(g: LiveGame, a: GameAction): LiveGame {
       return addOut(resetCount({ ...g, events: log(g, "Out recorded") }));
     case "setPitcher":
       return { ...g, pitcherId: a.playerId, events: log(g, `Now pitching: ${a.playerId ? nameOf(g, a.playerId) : "—"}`) };
-    case "setBatter":
-      return { ...g, batterIndex: a.index, balls: 0, strikes: 0 };
+    case "setBatter": {
+      if (!g.battingOrder.length) return g;
+      // Keep the lap count so batterIndex stays monotonic across the order.
+      const n = g.battingOrder.length;
+      const lap = Math.floor(g.batterIndex / n);
+      const target = ((a.index % n) + n) % n;
+      return { ...g, batterIndex: lap * n + target, balls: 0, strikes: 0 };
+    }
+    case "substitute": {
+      const out = g.battingOrder[a.slot];
+      if (!out || out === a.playerId || g.battingOrder.includes(a.playerId)) return g;
+      if (!g.players.some((p) => p.id === a.playerId)) return g;
+      const battingOrder = g.battingOrder.map((id, i) => (i === a.slot ? a.playerId : id));
+      // A sub replaces the player everywhere they currently stand.
+      const bases = { ...g.bases };
+      for (const b of ORDER) if (bases[b] === out) bases[b] = a.playerId;
+      return { ...g, battingOrder, bases, events: log(g, `${nameOf(g, a.playerId)} replaces ${nameOf(g, out)}`) };
+    }
     case "endHalf":
       return switchHalf(g);
     case "final":
