@@ -16,7 +16,25 @@ interface Res {
 const GAME_TTL_SECONDS = 60 * 60 * 24 * 2;
 const MAX_BYTES = 512 * 1024;
 
-const keyFor = (code: string) => `baseball-notepad:game:${code}`;
+// Hash tag {code} keeps both keys in one slot so the script can touch both.
+const keyFor = (code: string) => `baseball-notepad:game:{${code}}`;
+const revKeyFor = (code: string) => `baseball-notepad:rev:{${code}}`;
+
+// Atomic compare-and-set: write only if the stored revision still equals the
+// revision the client built on. Otherwise hand back the current game.
+const CAS_SCRIPT = `
+local cur = redis.call('GET', KEYS[2])
+local curRev = -1
+if cur then curRev = tonumber(cur) end
+if curRev ~= tonumber(ARGV[2]) then
+  local game = redis.call('GET', KEYS[1])
+  if game then return {0, game} end
+  return {0, ''}
+end
+redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[4])
+redis.call('SET', KEYS[2], ARGV[3], 'EX', ARGV[4])
+return {1, ''}
+`;
 
 async function upstash(command: string[]): Promise<{ result: unknown }> {
   // Vercel's Storage/Marketplace Upstash integration may expose KV_* names.
@@ -66,22 +84,23 @@ export default async function handler(req: Req, res: Res): Promise<void> {
           body = null;
         }
       }
-      if (!body || typeof body !== "object" || typeof (body as { rev?: unknown }).rev !== "number") {
+      const { game, baseRev } = (body ?? {}) as { game?: { rev?: unknown; code?: unknown }; baseRev?: unknown };
+      if (!game || typeof game !== "object" || typeof game.rev !== "number" || typeof baseRev !== "number" || game.rev <= baseRev || game.code !== code) {
         res.status(400).json({ error: "Invalid game payload." });
         return;
       }
-      const serialized = JSON.stringify(body);
+      const serialized = JSON.stringify(game);
       if (serialized.length > MAX_BYTES) {
         res.status(413).json({ error: "Game too large." });
         return;
       }
-      // Reject stale writes so a lagging device can't overwrite newer plays.
-      const current = await load(code);
-      if (current && typeof current.rev === "number" && current.rev >= (body as { rev: number }).rev) {
-        res.status(409).json({ error: "Stale update.", game: current });
+      const out = await upstash(["EVAL", CAS_SCRIPT, "2", keyFor(code), revKeyFor(code), serialized, String(baseRev), String(game.rev), String(GAME_TTL_SECONDS)]);
+      const [ok, current] = Array.isArray(out.result) ? (out.result as [number, string]) : [0, ""];
+      if (ok !== 1) {
+        // Someone else wrote first (or the game expired: game is null).
+        res.status(409).json({ error: "Stale update.", game: current ? JSON.parse(current) : null });
         return;
       }
-      await upstash(["SET", keyFor(code), serialized, "EX", String(GAME_TTL_SECONDS)]);
       res.status(200).json({ ok: true });
       return;
     }

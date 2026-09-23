@@ -1,19 +1,15 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect } from "react";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { LiveGame } from "../../lib/types";
-import { reduce, type GameAction } from "../../lib/game";
+import type { GameAction } from "../../lib/game";
+import { createSync, type PushResult, type SyncState, type Transport } from "../../lib/sync";
 
-export type SyncStatus = "local" | "synced" | "syncing" | "error" | "offline";
+export type { SyncStatus } from "../../lib/sync";
 
-interface LiveGameStore {
-  game: LiveGame | null;
+interface LiveGameStore extends SyncState {
   history: LiveGame[];
-  status: SyncStatus;
-  message: string;
   myLabel: string;
-  setGame: (g: LiveGame | null, keepHistory?: boolean) => void;
-  setStatus: (s: SyncStatus, message?: string) => void;
   setMyLabel: (l: string) => void;
 }
 
@@ -21,18 +17,19 @@ export const useLiveGameStore = create<LiveGameStore>()(
   persist(
     (set) => ({
       game: null,
-      history: [],
+      ackedRev: -1,
+      pending: [],
       status: "local",
       message: "",
+      history: [],
       myLabel: "Coach",
-      setGame: (game, keepHistory = false) => set((s) => ({ game, history: keepHistory ? s.history : [] })),
-      setStatus: (status, message = "") => set({ status, message }),
       setMyLabel: (myLabel) => set({ myLabel }),
     }),
     {
-      name: "baseballNotepad.liveGame.v1",
+      name: "baseballNotepad.liveGame.v2",
       storage: createJSONStorage(() => localStorage),
-      partialize: (s) => ({ game: s.game, myLabel: s.myLabel }),
+      // Unsent plays survive a reload or a dead phone battery.
+      partialize: (s) => ({ game: s.game, ackedRev: s.ackedRev, pending: s.pending, myLabel: s.myLabel }),
     },
   ),
 );
@@ -40,96 +37,80 @@ export const useLiveGameStore = create<LiveGameStore>()(
 export async function fetchGame(code: string): Promise<LiveGame | null> {
   const res = await fetch(`/api/game?code=${encodeURIComponent(code)}`, { cache: "no-store" });
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(String(res.status));
+  if (!res.ok || !(res.headers.get("content-type") ?? "").includes("application/json")) throw new Error(String(res.status));
   return ((await res.json()) as { game: LiveGame }).game;
 }
 
-type PushResult = { ok: true } | { ok: false; conflict?: LiveGame; status: number };
+const transport: Transport = {
+  pull: fetchGame,
+  async push(game, baseRev): Promise<PushResult> {
+    const res = await fetch(`/api/game?code=${encodeURIComponent(game.code)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ game, baseRev }),
+    });
+    if (res.ok) return { kind: "ok" };
+    if (res.status === 409) return { kind: "conflict", game: ((await res.json()) as { game: LiveGame | null }).game };
+    if (res.status === 503 || res.status === 404 || res.status === 405) return { kind: "offline" };
+    return { kind: "error" };
+  },
+};
 
-async function pushGame(game: LiveGame): Promise<PushResult> {
-  const res = await fetch(`/api/game?code=${encodeURIComponent(game.code)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(game),
-  });
-  if (res.ok) return { ok: true };
-  if (res.status === 409) return { ok: false, status: 409, conflict: ((await res.json()) as { game: LiveGame }).game };
-  return { ok: false, status: res.status };
-}
+const sync = createSync(
+  {
+    get: () => useLiveGameStore.getState(),
+    set: (patch) => useLiveGameStore.setState(patch),
+    onRebased: () => useLiveGameStore.setState({ history: [] }),
+  },
+  transport,
+);
 
 const POLL_MS = 2500;
 
-/** Shared live game with optimistic local updates, undo, and polling sync. */
+/** Shared live game: optimistic local plays, undo, and conflict-safe sync. */
 export function useLiveGame() {
-  const { game, history, status, message, setGame, setStatus } = useLiveGameStore();
-  const inflight = useRef(0);
-
-  const push = useCallback(async (g: LiveGame) => {
-    inflight.current++;
-    setStatus("syncing");
-    try {
-      const r = await pushGame(g);
-      if (r.ok) setStatus("synced");
-      else if (r.conflict) {
-        // Another coach recorded a play first — take theirs.
-        setGame(r.conflict);
-        setStatus("synced", "Another device updated the game — refreshed to the latest.");
-      } else if (r.status === 503 || r.status === 404) setStatus("offline", "Sync unavailable — scoring on this device only.");
-      else setStatus("error", "Couldn't sync that play. It's saved here and will sync on the next play.");
-    } catch {
-      setStatus("error", "No connection. Plays are saved on this device.");
-    } finally {
-      inflight.current--;
-    }
-  }, [setGame, setStatus]);
+  const game = useLiveGameStore((s) => s.game);
+  const status = useLiveGameStore((s) => s.status);
+  const message = useLiveGameStore((s) => s.message);
+  const canUndo = useLiveGameStore((s) => s.history.length > 0);
 
   const dispatch = useCallback((a: GameAction) => {
-    const cur = useLiveGameStore.getState().game;
-    if (!cur) return;
-    const next = reduce(cur, a);
-    if (next === cur) return;
-    useLiveGameStore.setState((s) => ({ game: next, history: [...s.history, cur].slice(-50) }));
-    void push(next);
-  }, [push]);
+    const before = useLiveGameStore.getState().game;
+    if (sync.dispatch(a) && before) {
+      useLiveGameStore.setState((s) => ({ history: [...s.history, before].slice(-50) }));
+    }
+  }, []);
 
   const undo = useCallback(() => {
-    const { game: cur, history: h } = useLiveGameStore.getState();
-    const prev = h[h.length - 1];
-    if (!cur || !prev) return;
-    const restored = { ...prev, rev: cur.rev + 1, updatedAt: Date.now() };
-    useLiveGameStore.setState({ game: restored, history: h.slice(0, -1) });
-    void push(restored);
-  }, [push]);
+    const { history } = useLiveGameStore.getState();
+    const prev = history[history.length - 1];
+    if (!prev) return;
+    if (sync.dispatch({ type: "restore", game: prev })) useLiveGameStore.setState({ history: history.slice(0, -1) });
+  }, []);
 
-  const start = useCallback((g: LiveGame) => {
-    setGame(g);
-    void push(g);
-  }, [push, setGame]);
+  const start = useCallback((g: LiveGame, ackedRev = -1) => {
+    useLiveGameStore.setState({ history: [] });
+    sync.start(g, ackedRev);
+  }, []);
 
-  // Poll for other devices' plays.
+  const leave = useCallback(() => {
+    useLiveGameStore.setState({ game: null, ackedRev: -1, pending: [], history: [], status: "local", message: "" });
+  }, []);
+
   const code = game?.code;
   useEffect(() => {
     if (!code) return;
-    let stop = false;
-    const tick = async () => {
-      if (inflight.current > 0 || document.hidden) return;
-      try {
-        const remote = await fetchGame(code);
-        const local = useLiveGameStore.getState().game;
-        if (stop || !remote || !local || local.code !== code) return;
-        if (remote.rev > local.rev) setGame(remote);
-        else if (remote.rev < local.rev && useLiveGameStore.getState().status !== "offline") void push(local);
-      } catch {
-        /* transient — next tick retries */
-      }
+    const tick = () => {
+      if (!document.hidden) void sync.poll();
     };
-    void tick();
+    tick();
     const t = setInterval(tick, POLL_MS);
+    window.addEventListener("online", tick);
     return () => {
-      stop = true;
       clearInterval(t);
+      window.removeEventListener("online", tick);
     };
-  }, [code, push, setGame]);
+  }, [code]);
 
-  return { game, canUndo: history.length > 0, status, message, dispatch, undo, start, leave: () => setGame(null) };
+  return { game, canUndo, status, message, dispatch, undo, start, leave };
 }

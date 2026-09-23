@@ -33,7 +33,20 @@ function Board({ diagram, commit }: { diagram: Diagram; commit: (d: Diagram) => 
   const drag = useRef<{ id: string } | null>(null);
   const [arrow, setArrow] = useState<DiagramArrow | null>(null);
 
-  useEffect(() => setDraft(diagram), [diagram]);
+  // Pointer handlers read these refs: pointerup can fire before React renders
+  // the last pointermove, so state captured at render time may be stale.
+  const draftRef = useRef(diagram);
+  const arrowRef = useRef<DiagramArrow | null>(null);
+  const updateDraft = (d: Diagram) => {
+    draftRef.current = d;
+    setDraft(d);
+  };
+  const updateArrow = (a: DiagramArrow | null) => {
+    arrowRef.current = a;
+    setArrow(a);
+  };
+
+  useEffect(() => updateDraft(diagram), [diagram]);
 
   const down = (e: RPointerEvent<SVGSVGElement>) => {
     const svg = svgRef.current;
@@ -46,7 +59,7 @@ function Board({ diagram, commit }: { diagram: Diagram; commit: (d: Diagram) => 
     }
     if (tool === "throw" || tool === "run") {
       svg.setPointerCapture(e.pointerId);
-      setArrow({ id: uid(), kind: tool, x1: p.x, y1: p.y, x2: p.x, y2: p.y });
+      updateArrow({ id: uid(), kind: tool, x1: p.x, y1: p.y, x2: p.x, y2: p.y });
     }
   };
   const moveEv = (e: RPointerEvent<SVGSVGElement>) => {
@@ -55,17 +68,20 @@ function Board({ diagram, commit }: { diagram: Diagram; commit: (d: Diagram) => 
     const p = toSvg(svg, e);
     if (drag.current) {
       const id = drag.current.id;
-      setDraft((d) => ({ ...d, markers: d.markers.map((m) => (m.id === id ? { ...m, ...p } : m)) }));
-    } else if (arrow) setArrow({ ...arrow, x2: p.x, y2: p.y });
+      const d = draftRef.current;
+      updateDraft({ ...d, markers: d.markers.map((m) => (m.id === id ? { ...m, ...p } : m)) });
+    } else if (arrowRef.current) updateArrow({ ...arrowRef.current, x2: p.x, y2: p.y });
   };
   const up = () => {
+    const d = draftRef.current;
     if (drag.current) {
       drag.current = null;
-      commit(draft);
+      commit(d);
     }
-    if (arrow) {
-      if (Math.hypot(arrow.x2 - arrow.x1, arrow.y2 - arrow.y1) > 3) commit({ ...draft, arrows: [...draft.arrows, arrow] });
-      setArrow(null);
+    const a = arrowRef.current;
+    if (a) {
+      if (Math.hypot(a.x2 - a.x1, a.y2 - a.y1) > 3) commit({ ...d, arrows: [...d.arrows, a] });
+      updateArrow(null);
     }
   };
   const markerDown = (id: string) => (e: RPointerEvent) => {

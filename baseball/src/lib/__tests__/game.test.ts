@@ -117,3 +117,23 @@ describe("game flow controls", () => {
     expect(run(g, { type: "substitute", slot: 1, playerId: "e" })).toBe(g); // already in the order
   });
 });
+
+describe("fielder's choice", () => {
+  it("retires the lead runner when nobody is forced", () => {
+    let g = run(game(), { type: "result", result: "2B" }); // A on second
+    g = run(g, { type: "result", result: "FC" });
+    expect(g.bases).toEqual({ first: "b", second: null, third: null });
+    expect(g.outs).toBe(1);
+  });
+  it("is a no-op with the bases empty", () => {
+    const g = game();
+    expect(reduce(g, { type: "result", result: "FC" })).toBe(g);
+  });
+  it("restore puts back a snapshot as a new revision", () => {
+    const g0 = game();
+    const g1 = run(g0, { type: "result", result: "HR" });
+    const g2 = reduce(g1, { type: "restore", game: g0 });
+    expect(totals(g2).us).toBe(0);
+    expect(g2.rev).toBe(g1.rev + 1);
+  });
+});

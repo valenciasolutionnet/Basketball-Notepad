@@ -20,6 +20,11 @@ export function PracticePlanTab() {
   const active = items.find((i) => i.id === activeId) ?? null;
   const total = items.reduce((a, i) => a + i.duration, 0);
 
+  // The active block was deleted or the plan cleared: stop the clock.
+  useEffect(() => {
+    if (!active && running) setRunning(false);
+  }, [active, running]);
+
   useEffect(() => {
     if (!running) return;
     const t = setInterval(() => {

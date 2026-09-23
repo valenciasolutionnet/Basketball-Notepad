@@ -130,6 +130,8 @@ export interface CoachMessage {
 
 export interface LiveGame {
   code: string;
+  /** Local calendar day the game started (yyyy-mm-dd) — pitch counts are logged to it. */
+  startedDay?: string;
   teamName: string;
   opponentName: string;
   weAreHome: boolean;

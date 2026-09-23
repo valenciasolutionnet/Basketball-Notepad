@@ -1,5 +1,6 @@
 import type { BaseState, GameEvent, Id, LiveGame, PlateResult } from "./types";
 import { uid } from "./id";
+import { toDay } from "./pitching";
 
 export const OPP: Id = "__opp__";
 
@@ -26,6 +27,7 @@ export interface NewGameInput {
 export function createGame(input: NewGameInput): LiveGame {
   return {
     ...input,
+    startedDay: toDay(new Date()),
     inning: 1,
     half: "top",
     balls: 0,
@@ -92,7 +94,9 @@ export type GameAction =
   | { type: "endHalf" }
   | { type: "final"; value: boolean }
   | { type: "message"; from: string; text: string }
-  | { type: "rename"; teamName?: string; opponentName?: string };
+  | { type: "rename"; teamName?: string; opponentName?: string }
+  /** Undo: put back an earlier snapshot. */
+  | { type: "restore"; game: LiveGame };
 
 const ORDER: (keyof BaseState)[] = ["first", "second", "third"];
 
@@ -245,8 +249,11 @@ function recordOurPA(g: LiveGame, result: PlateResult): LiveGame {
       // Lead forced runner is retired; batter reaches first.
       const b = next.bases;
       const bases: BaseState = { ...b };
-      if (b.first && b.second && b.third) bases.third = b.second;
-      if (b.first && b.second) bases.second = b.first;
+      if (b.first) {
+        if (b.second && b.third) bases.third = b.second;
+        if (b.second) bases.second = b.first;
+      } else if (b.third) bases.third = null; // no force: lead runner retired
+      else if (b.second) bases.second = null;
       bases.first = batter;
       next = { ...next, bases };
       break;
@@ -334,8 +341,14 @@ function apply(g: LiveGame, a: GameAction): LiveGame {
       if (g.strikes >= 2) return weAreBatting(g) ? recordOurPA(counted, "K") : recordOppPA(counted, "K");
       return { ...counted, strikes: g.strikes + 1 };
     }
-    case "result":
-      return weAreBatting(g) ? recordOurPA(PITCHED.has(a.result) ? countPitch(g) : g, a.result) : g;
+    case "result": {
+      if (!weAreBatting(g)) return g;
+      const { first, second, third } = g.bases;
+      if (a.result === "FC" && !first && !second && !third) return g; // no runner to retire
+      return recordOurPA(PITCHED.has(a.result) ? countPitch(g) : g, a.result);
+    }
+    case "restore":
+      return { ...a.game, code: g.code };
     case "oppResult":
       return weAreBatting(g) ? g : recordOppPA(PITCHED.has(a.result) ? countPitch(g) : g, a.result);
     case "runner":
