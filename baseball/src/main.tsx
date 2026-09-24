@@ -1,11 +1,23 @@
-import { StrictMode } from "react";
+import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { AccessGate } from "./components/AccessGate";
 import "./index.css";
+
+const AdminPage = lazy(() => import("./components/AdminPage"));
+const isAdmin = new URLSearchParams(location.search).has("admin");
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    {isAdmin ? (
+      <Suspense fallback={null}>
+        <AdminPage />
+      </Suspense>
+    ) : (
+      <AccessGate>
+        <App />
+      </AccessGate>
+    )}
   </StrictMode>,
 );
 

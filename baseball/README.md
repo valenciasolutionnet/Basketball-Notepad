@@ -31,4 +31,15 @@ npm run build      # typecheck + production build
 2. Add an Upstash Redis database. Either connect it from the Vercel project's **Storage** tab (this sets the `KV_REST_API_*` variables), or create it at upstash.com and add `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` as environment variables.
 3. Deploy. If those variables are missing, Live Game still works on a single device.
 
+## Access gate (optional)
+
+Coaches who buy through the Stripe payment link get in automatically. Anyone else registers and waits for your approval.
+
+1. In Stripe, create a restricted key with **Checkout Sessions: Read**.
+2. Edit both Baseball Notepad payment links (single and Club License). Under **After payment**, choose **Don't show confirmation page** and redirect to `https://baseball-notepad.vercel.app/?session_id={CHECKOUT_SESSION_ID}`.
+3. Add these Vercel environment variables (Production): `VITE_ACCESS_GATE=on`, `VITE_STRIPE_PAYMENT_LINK` (the link shown on **Buy now**), `STRIPE_SECRET_KEY`, `STRIPE_PRODUCT_ID=prod_VJonrNbgjcJPts`, and `ACCESS_ADMIN_KEY` (a random string of 16+ characters). Upstash must be connected (step 2 above).
+4. Redeploy. Open `https://baseball-notepad.vercel.app/?admin` and sign in with `ACCESS_ADMIN_KEY` to approve requests, create codes, or revoke codes.
+
+Each buyer or approved coach gets a code like `ABCD-EFGH-JKMN`, which works on any device. Demo deployments (any hostname containing `demo`) and builds without `VITE_ACCESS_GATE=on` stay open.
+
 Data stays in the browser. Use the header's backup (download) and restore (upload) buttons to move it between devices.
