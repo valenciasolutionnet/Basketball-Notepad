@@ -102,10 +102,7 @@ export default function App() {
 
   if (showCover) {
     return (
-      <CoverPage
-        onStart={() => { setShowCover(false); window.scrollTo(0, 0); }}
-        onJoin={() => { setPhase("game"); setShowCover(false); window.scrollTo(0, 0); }}
-      />
+      <CoverPage onEnter={() => { setShowCover(false); window.scrollTo(0, 0); }} />
     );
   }
 
