@@ -1,100 +1,116 @@
-import { ClipboardList, Zap, Radio, Award, Activity, ListOrdered, WifiOff, Users, ArrowRight, type LucideIcon } from "lucide-react";
-import { useNotepad } from "../store";
-import { Field } from "./Field";
-import { POSITION_XY } from "../lib/diamond";
-import { POSITIONS } from "../lib/types";
+import { ClipboardList, Zap, Radio, Award, ArrowUpRight, type LucideIcon } from "lucide-react";
 
-const PHASES: { icon: LucideIcon; title: string; body: string }[] = [
-  { icon: ClipboardList, title: "Plan", body: "Roster, attendance, lineups with fair defensive rotation, and pitch-count arm care." },
-  { icon: Zap, title: "Deliver", body: "Timed practice plan, 24-drill library, and a diamond board for cutoffs and bunt coverage." },
-  { icon: Radio, title: "Game", body: "Pitch-by-pitch scoring, bases, box score, and pitcher limits — shared live with your staff." },
-  { icon: Award, title: "Review", body: "Rate the practice, capture notes, and watch season stats and trends build." },
+// Matches the shared Valencia Solution notepad cover (Basketball Notepad):
+// same palette, type scale, icon tiles, button, and footer.
+const COVER = {
+  bg: "#131F19",
+  tile: "#2C4234",
+  amber: "#E0872C",
+  amberInk: "#241505",
+  chalk: "#EDEAE0",
+  chalkDim: "#AAB8A6",
+  chalkFaint: "rgba(237,234,224,0.45)",
+};
+
+const PHASES: { icon: LucideIcon; label: string }[] = [
+  { icon: ClipboardList, label: "Plan" },
+  { icon: Zap, label: "Deliver" },
+  { icon: Radio, label: "Game" },
+  { icon: Award, label: "Review" },
 ];
 
-const HIGHLIGHTS: { icon: LucideIcon; label: string }[] = [
-  { icon: Activity, label: "Little League pitch limits & rest days" },
-  { icon: ListOrdered, label: "Printable lineup cards" },
-  { icon: Users, label: "Multi-coach live scoring" },
-  { icon: WifiOff, label: "Works offline at the field" },
-];
-
-export function CoverPage({ onStart, onJoin }: { onStart: () => void; onJoin: () => void }) {
-  const teamName = useNotepad((s) => s.teamName);
-  const players = useNotepad((s) => s.players.length);
-  const returning = players > 0;
-
+/** Faint diamond linework behind the cover, like the court lines on Basketball Notepad. */
+function DiamondLines() {
+  const s = { fill: "none", stroke: COVER.chalk, strokeWidth: 2 } as const;
   return (
-    <div className="relative min-h-dvh overflow-hidden bg-turf-950">
-      {/* Field backdrop */}
-      <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 mx-auto max-w-3xl opacity-35 [mask-image:radial-gradient(ellipse_65%_60%_at_50%_30%,black_45%,transparent_100%)]">
-        <Field className="w-full">
-          {POSITIONS.map((p) => (
-            <circle key={p} cx={POSITION_XY[p].x} cy={POSITION_XY[p].y} r={1.6} fill="#f1ede2" opacity={0.7} />
-          ))}
-        </Field>
-      </div>
+    <svg
+      viewBox="0 0 500 460"
+      aria-hidden="true"
+      className="pointer-events-none absolute left-1/2 top-1/2 h-[590px] w-[640px] -translate-x-1/2 -translate-y-1/2"
+      style={{ opacity: 0.055 }}
+    >
+      {/* outfield wall */}
+      <path d="M 30 250 A 300 300 0 0 1 470 250" {...s} />
+      {/* foul lines */}
+      <line x1="250" y1="430" x2="30" y2="210" {...s} />
+      <line x1="250" y1="430" x2="470" y2="210" {...s} />
+      {/* infield diamond + grass arc */}
+      <path d="M 250 430 L 340 340 L 250 250 L 160 340 Z" {...s} />
+      <path d="M 145 325 A 150 150 0 0 1 355 325" {...s} strokeDasharray="6 6" />
+      {/* mound + home circle */}
+      <circle cx="250" cy="340" r="14" {...s} />
+      <circle cx="250" cy="430" r="26" {...s} />
+      {/* bases */}
+      {[
+        [340, 340],
+        [250, 250],
+        [160, 340],
+      ].map(([x, y]) => (
+        <rect key={`${x}-${y}`} x={x! - 7} y={y! - 7} width="14" height="14" transform={`rotate(45 ${x} ${y})`} {...s} />
+      ))}
+    </svg>
+  );
+}
 
-      <main className="relative mx-auto flex max-w-3xl flex-col px-5 pb-[calc(env(safe-area-inset-bottom)+32px)] pt-[calc(env(safe-area-inset-top)+40px)]">
-        <div className="flex items-center gap-2.5">
-          <svg width={40} height={40} viewBox="0 0 64 64" aria-hidden="true">
-            <circle cx="32" cy="32" r="29" fill="#F4F1E8" stroke="#8C8778" strokeWidth="2" />
-            <path d="M14 10c8 7 10 16 10 22s-2 15-10 22M50 10c-8 7-10 16-10 22s2 15 10 22" fill="none" stroke="#C8322B" strokeWidth="2.5" strokeDasharray="3 3" />
+export function CoverPage({ onEnter }: { onEnter: () => void }) {
+  return (
+    <div className="flex min-h-dvh justify-center" style={{ background: COVER.bg }}>
+      <div className="relative flex min-h-dvh w-full flex-col items-center justify-center overflow-hidden px-6 py-10 text-center">
+        <DiamondLines />
+
+        <div className="cover-ball relative z-[1] mb-5">
+          <svg width="84" height="84" viewBox="0 0 40 40" role="img" aria-label="Baseball">
+            <text x="20" y="20" fontSize="36" textAnchor="middle" dominantBaseline="central">
+              ⚾
+            </text>
           </svg>
-          <span className="text-xs font-bold uppercase tracking-[0.25em] text-chalk-dim">Valencia Solution</span>
         </div>
 
-        <h1 className="mt-10 font-display text-6xl uppercase leading-[0.9] tracking-wide text-chalk sm:text-7xl">
+        <p
+          className="cover-fade-1 relative z-[1] mb-2.5 mt-0 font-mono uppercase"
+          style={{ fontSize: 21.9, color: COVER.amber, letterSpacing: "0.18em" }}
+        >
+          Coach's Toolkit
+        </p>
+
+        <h1
+          className="cover-fade-2 relative z-[1] mb-[26px] mt-0 font-display uppercase"
+          style={{ fontSize: "clamp(46px, 12vw, 60px)", color: COVER.chalk, letterSpacing: "0.02em", lineHeight: 1.04 }}
+        >
           Baseball
           <br />
-          <span className="text-clay">Notepad</span>
+          Notepad
         </h1>
-        <p className="mt-4 max-w-md text-[17px] leading-relaxed text-chalk-dim">
-          The coach's clipboard for the whole season — plan practice, run the field, score the game, and protect every arm.
-        </p>
 
-        <div className="mt-8 flex flex-col gap-2.5 sm:flex-row">
-          <button
-            type="button"
-            onClick={onStart}
-            className="inline-flex min-h-14 items-center justify-center gap-2 rounded-xl bg-clay px-7 text-base font-bold text-clay-ink shadow-lg shadow-clay/20 transition hover:bg-clay-dim active:scale-[0.98]"
-          >
-            {returning ? `Open ${teamName.trim() || "my team"}` : "Start coaching"} <ArrowRight size={18} strokeWidth={2.75} />
-          </button>
-          <button
-            type="button"
-            onClick={onJoin}
-            className="inline-flex min-h-14 items-center justify-center gap-2 rounded-xl border border-line px-7 text-base font-bold text-chalk transition hover:bg-turf-800 active:scale-[0.98]"
-          >
-            <Radio size={17} /> Join a live game
-          </button>
-        </div>
-
-        <ul className="mt-8 grid grid-cols-2 gap-x-4 gap-y-2.5 text-[13px] text-chalk-dim">
-          {HIGHLIGHTS.map((h) => (
-            <li key={h.label} className="flex items-start gap-2">
-              <h.icon size={15} className="mt-0.5 shrink-0 text-grass" />
-              {h.label}
-            </li>
-          ))}
-        </ul>
-
-        <section aria-label="How it works" className="mt-12 grid gap-3 sm:grid-cols-2">
-          {PHASES.map((p, i) => (
-            <div key={p.title} className="rounded-xl border border-line bg-turf-900/80 p-4 backdrop-blur">
-              <div className="flex items-center gap-2.5">
-                <span className="font-mono text-xs text-chalk-dim">0{i + 1}</span>
-                <p.icon size={17} className="text-clay" />
-                <h2 className="font-display text-lg uppercase tracking-wider">{p.title}</h2>
+        <div className="cover-fade-3 relative z-[1] mb-[34px] flex flex-wrap justify-center gap-[18px]">
+          {PHASES.map(({ icon: Icon, label }) => (
+            <div key={label} className="flex w-[60px] flex-col items-center gap-1.5">
+              <div className="flex size-10 items-center justify-center rounded-[10px]" style={{ background: COVER.tile }}>
+                <Icon size={18} color={COVER.amber} strokeWidth={2.25} />
               </div>
-              <p className="mt-1.5 text-[13.5px] leading-relaxed text-chalk-dim">{p.body}</p>
+              <span className="font-sans font-semibold" style={{ fontSize: 21, color: COVER.chalkDim }}>
+                {label}
+              </span>
             </div>
           ))}
-        </section>
+        </div>
 
-        <p className="mt-10 text-center text-[11.5px] text-chalk-dim/70">
-          Your data stays on this device unless you share a live game. Add to your home screen for one-tap access at the field.
+        <button
+          type="button"
+          onClick={onEnter}
+          className="cover-enter-btn relative z-[1] flex items-center gap-2 rounded-[10px] border-none px-[38px] py-4 font-sans font-bold"
+          style={{ background: COVER.amber, color: COVER.amberInk, fontSize: 23.9 }}
+        >
+          Enter Notepad <ArrowUpRight size={18} strokeWidth={2.5} />
+        </button>
+
+        <p
+          className="relative z-[1] mb-0 mt-10 text-center font-sans"
+          style={{ fontSize: 20, color: COVER.chalkFaint, letterSpacing: "0.03em" }}
+        >
+          © 2026 Valenciasolution.net™ · All rights reserved
         </p>
-      </main>
+      </div>
     </div>
   );
 }

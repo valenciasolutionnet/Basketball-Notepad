@@ -84,3 +84,23 @@ button:disabled {
     display: none !important;
   }
 }
+
+/* Cover page entrance (matches the other Valencia Solution notepads) */
+@keyframes cover-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes cover-drop {
+  from { opacity: 0; transform: translateY(-18px) scale(0.9); }
+  to { opacity: 1; transform: none; }
+}
+.cover-ball { animation: cover-drop 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.cover-fade-1 { animation: cover-rise 0.5s ease-out 0.1s both; }
+.cover-fade-2 { animation: cover-rise 0.5s ease-out 0.2s both; }
+.cover-fade-3 { animation: cover-rise 0.5s ease-out 0.3s both; }
+.cover-enter-btn { animation: cover-rise 0.5s ease-out 0.4s both; transition: transform 0.15s ease, filter 0.15s ease; }
+.cover-enter-btn:hover { filter: brightness(1.08); }
+.cover-enter-btn:active { transform: scale(0.97); }
+@media (prefers-reduced-motion: reduce) {
+  .cover-ball, .cover-fade-1, .cover-fade-2, .cover-fade-3, .cover-enter-btn { animation: none; }
+}
