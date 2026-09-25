@@ -14,8 +14,10 @@ import { SheetBoardTab } from "./features/deliver/SheetBoardTab";
 import { LiveGameTab } from "./features/game/LiveGameTab";
 import { ReflectTab, SeasonTab } from "./features/review/ReviewTabs";
 import { CoverPage } from "./components/CoverPage";
+import { TeamSwitcher } from "./components/TeamSwitcher";
 import { useLiveGameStore } from "./features/game/useLiveGame";
 import { isDemoHost } from "./lib/demo";
+import { activeTeam } from "./lib/teams";
 
 // Recharts is the heaviest dependency; load it only when Trends is opened.
 const TrendsTab = lazy(() => import("./features/review/TrendsTab"));
@@ -68,7 +70,8 @@ function exportData() {
   const blob = new Blob([JSON.stringify({ app: "curling-notepad", version: 1, data }, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `curling-notepad-${new Date().toISOString().slice(0, 10)}.json`;
+  const team = activeTeam().name.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "") || "team";
+  a.download = `curling-notepad-${team}-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
 }
@@ -127,6 +130,7 @@ export default function App() {
             </h1>
             {teamName && <p className="truncate text-[11px] text-chalk-dim">{teamName}</p>}
           </div>
+          <TeamSwitcher />
           <button type="button" onClick={exportData} aria-label="Back up data" title="Back up data" className="flex size-9 items-center justify-center rounded-lg text-chalk-dim hover:bg-turf-700"><Download size={16} /></button>
           <button type="button" onClick={importData} aria-label="Restore backup" title="Restore backup" className="flex size-9 items-center justify-center rounded-lg text-chalk-dim hover:bg-turf-700"><Upload size={16} /></button>
         </div>
