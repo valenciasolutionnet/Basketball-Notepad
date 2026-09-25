@@ -15,6 +15,39 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+// Admin push notifications: new registrations / purchases (see api/push.ts).
+self.addEventListener("push", (event) => {
+  let data = { title: "Curling Notepad", body: "" };
+  try {
+    if (event.data) data = { ...data, ...event.data.json() };
+  } catch {
+    if (event.data) data.body = event.data.text();
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Curling Notepad", {
+      body: data.body,
+      icon: "/favicon.svg",
+      badge: "/favicon.svg",
+      tag: "curling-notepad-admin",
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ("focus" in client) {
+          client.navigate?.("/?admin");
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow("/?admin");
+    }),
+  );
+});
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
