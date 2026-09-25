@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { ShieldCheck, Check, X, Ban, RotateCcw, Plus, Copy, RefreshCw, LogOut } from "lucide-react";
+import { ShieldCheck, Check, X, Ban, RotateCcw, Plus, Copy, RefreshCw, LogOut, Bell, BellOff } from "lucide-react";
 import { accessApi } from "../lib/access";
+import { currentSubscription, disablePush, enablePush, pushSupported } from "../lib/push";
 import { Button, Empty, Panel, SubHeading, cx } from "./ui";
 
 interface Registration {
@@ -33,6 +34,9 @@ export default function AdminPage() {
   const [busy, setBusy] = useState(false);
   const [grant, setGrant] = useState({ name: "", email: "" });
   const [lastGranted, setLastGranted] = useState<string | null>(null);
+  const [pushOn, setPushOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
 
   const call = useCallback(async <T,>(body: Record<string, unknown>): Promise<T | null> => {
     setBusy(true);
@@ -58,6 +62,30 @@ export default function AdminPage() {
   useEffect(() => {
     if (adminKey) void refresh();
   }, [adminKey, refresh]);
+
+  useEffect(() => {
+    if (!adminKey) return;
+    void currentSubscription().then((sub) => setPushOn(!!sub));
+  }, [adminKey]);
+
+  const togglePush = async () => {
+    setPushBusy(true);
+    setPushError(null);
+    try {
+      if (pushOn) {
+        await disablePush(adminKey);
+        setPushOn(false);
+      } else {
+        await enablePush(adminKey);
+        setPushOn(true);
+      }
+    } catch (e) {
+      setPushError(e instanceof Error ? e.message : "Couldn't change notification settings.");
+      setPushOn(!!(await currentSubscription()));
+    } finally {
+      setPushBusy(false);
+    }
+  };
 
   const signIn = (e: FormEvent) => {
     e.preventDefault();
@@ -110,6 +138,23 @@ export default function AdminPage() {
           </div>
         }>
         {error && <p role="alert" className="mb-3 rounded-lg border border-stitch/60 bg-stitch/10 p-3 text-sm">{error}</p>}
+
+        <SubHeading>Notifications</SubHeading>
+        {pushSupported() ? (
+          <div className="flex flex-wrap items-center gap-2.5 rounded-lg border border-line bg-turf-950 p-3">
+            <Button variant={pushOn ? "danger" : "primary"} disabled={pushBusy} onClick={() => void togglePush()}>
+              {pushOn ? <BellOff size={14} /> : <Bell size={14} />} {pushOn ? "Turn off notifications" : "Notify me on this device"}
+            </Button>
+            <span className="text-[12.5px] text-chalk-dim">
+              {pushOn ? "This browser gets a push when someone registers or buys access." : "Get a push here when someone registers or buys access."}
+            </span>
+          </div>
+        ) : (
+          <p className="text-[12.5px] text-chalk-dim">
+            Push notifications aren't available in this browser, or the server hasn't been configured with a VAPID key yet.
+          </p>
+        )}
+        {pushError && <p role="alert" className="mt-2 rounded-lg border border-stitch/60 bg-stitch/10 p-3 text-sm">{pushError}</p>}
 
         <SubHeading>Waiting for approval</SubHeading>
         {pending.length === 0 && <Empty>No pending requests.</Empty>}

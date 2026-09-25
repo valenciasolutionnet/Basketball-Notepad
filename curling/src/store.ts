@@ -1,11 +1,12 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type {
-  CheckItem, Diagram, Drill, FinishedGame, Id, Lineup, PlanItem, Player, Position, ReviewRatings, Session,
+  CheckItem, Diagram, Drill, FinishedGame, Id, Lineup, PlanItem, Player, Position, Prospect, ReviewRatings, Session,
 } from "./lib/types";
 import { uid } from "./lib/id";
 import { defaultDrills } from "./lib/defaults";
 import { defaultDiagram } from "./lib/sheet";
+import { activeStateKey } from "./lib/teams";
 
 type Updater<T> = T | ((prev: T) => T);
 
@@ -35,6 +36,8 @@ export interface NotepadState {
   ratings: ReviewRatings;
   notes: ReviewNotes;
   sessions: Session[];
+  /** Tryouts / cut list (Plan → Tryouts). Kept as history even after a prospect is promoted or cut. */
+  tryouts: Prospect[];
 }
 
 type ListKey = {
@@ -51,6 +54,10 @@ export interface NotepadActions {
   archiveGame: (g: FinishedGame) => void;
   removeFrom: (key: ListKey, id: Id) => void;
   resetAll: () => void;
+  addProspect: (name: string) => void;
+  updateProspect: (id: Id, patch: Partial<Prospect>) => void;
+  /** Creates a roster player from a "kept" prospect (pre-filled from name/position) and links them. */
+  promoteProspect: (id: Id) => void;
 }
 
 const defaultRatings = (): ReviewRatings => ({ prep: 3, energy: 3, communication: 3, fun: 3, learning: 3, effort: 3 });
@@ -77,6 +84,7 @@ export function initialState(): NotepadState {
     ratings: defaultRatings(),
     notes: emptyNotes(),
     sessions: [],
+    tryouts: [],
   };
 }
 
@@ -85,6 +93,10 @@ export function newPlayer(name: string): Player {
     id: uid(), name, positions: [], hand: "R", deliveryNotes: "",
     present: true, strengths: "", workOn: "", connectionNote: "",
   };
+}
+
+export function newProspect(name: string): Prospect {
+  return { id: uid(), name, positions: [], rating: 0, notes: "", status: "trying-out", promotedPlayerId: null, createdAt: Date.now() };
 }
 
 export const useNotepad = create<NotepadState & NotepadActions>()(
@@ -127,13 +139,36 @@ export const useNotepad = create<NotepadState & NotepadActions>()(
       removeFrom: (key, id) =>
         set((s) => ({ [key]: (s[key] as { id: Id }[]).filter((x) => x.id !== id) }) as Partial<NotepadState>),
       resetAll: () => set(initialState()),
+      addProspect: (name) => {
+        const n = name.trim();
+        if (!n) return;
+        set((s) => ({ tryouts: [...s.tryouts, newProspect(n)] }));
+      },
+      updateProspect: (id, patch) => set((s) => ({ tryouts: s.tryouts.map((p) => (p.id === id ? { ...p, ...patch } : p)) })),
+      promoteProspect: (id) =>
+        set((s) => {
+          const prospect = s.tryouts.find((p) => p.id === id);
+          if (!prospect || prospect.promotedPlayerId) return {};
+          const player: Player = { ...newPlayer(prospect.name), positions: prospect.positions };
+          return {
+            players: [...s.players, player],
+            tryouts: s.tryouts.map((p) => (p.id === id ? { ...p, status: "kept", promotedPlayerId: player.id } : p)),
+          };
+        }),
     }),
     {
-      name: "curlingNotepad.state.v1",
+      // Multi-team support (src/lib/teams.ts): this resolves to the active
+      // team's own key (${PREFIX}.state.v1.<teamId>), migrating any legacy
+      // single-team blob the first time it runs. Switching teams rewrites
+      // which key is active and reloads the page — see TeamSwitcher.
+      name: activeStateKey(),
       version: 1,
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => {
-        const { set: _s, addPlayer: _a, updatePlayer: _u, removePlayer: _r, addToPlan: _p, saveSession: _v, archiveGame: _g, removeFrom: _f, resetAll: _x, ...data } = s;
+        const {
+          set: _s, addPlayer: _a, updatePlayer: _u, removePlayer: _r, addToPlan: _p, saveSession: _v, archiveGame: _g,
+          removeFrom: _f, resetAll: _x, addProspect: _ap, updateProspect: _up, promoteProspect: _pp, ...data
+        } = s;
         return data;
       },
     },

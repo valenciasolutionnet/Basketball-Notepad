@@ -12,6 +12,7 @@
 //   UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN (or KV_REST_API_*)
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { notifyAdmins } from "./push";
 
 interface Req {
   method?: string;
@@ -171,6 +172,7 @@ async function handle(req: Req, b: Body): Promise<Reply> {
         await redis(["ZREM", k.licenses, lic.code]);
         return [200, { code: (await redis(["GET", k.checkout(b.sessionId)])) as string }];
       }
+      await notifyAdmins("New purchase", lic.email || lic.name || "A coach just bought access.").catch(() => {});
       return [200, { code: lic.code }];
     }
 
@@ -200,6 +202,7 @@ async function handle(req: Req, b: Body): Promise<Reply> {
       };
       await setJson(k.reg(reg.id), reg);
       await redis(["ZADD", k.regs, reg.created, reg.id]);
+      await notifyAdmins("New registration", `${reg.name} · ${reg.email}`).catch(() => {});
       return [200, { id: reg.id, status: reg.status }];
     }
 
