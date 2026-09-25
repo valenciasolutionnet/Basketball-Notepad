@@ -192,3 +192,19 @@ export interface Session {
   planMinutes: number;
 }
 
+export type TryoutStatus = "trying-out" | "kept" | "cut";
+
+/** A tryout prospect — kept as roster history even after being promoted or cut. */
+export interface Prospect {
+  id: Id;
+  name: string;
+  positions: Position[];
+  /** 0 (unrated) – 5. */
+  rating: number;
+  notes: string;
+  status: TryoutStatus;
+  /** Set once "Promote to roster" is used; the prospect stays in history. */
+  promotedPlayerId: Id | null;
+  createdAt: number;
+}
+

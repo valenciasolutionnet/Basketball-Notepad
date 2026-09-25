@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from "react";
 import {
-  ClipboardList, Zap, Radio, Award, Target, Users, ClipboardCheck, ListOrdered, Activity, Package,
+  ClipboardList, Zap, Radio, Award, Target, Users, ClipboardCheck, ClipboardX, ListOrdered, Activity, Package,
   Dumbbell, Map as MapIcon, Trophy, TrendingUp, NotebookPen, Download, Upload, type LucideIcon,
 } from "lucide-react";
 import { useNotepad } from "./store";
@@ -9,6 +9,7 @@ import { TargetsTab, AttendanceTab, LogisticsTab } from "./features/plan/basicTa
 import { RosterTab } from "./features/plan/RosterTab";
 import { LineupTab } from "./features/plan/LineupTab";
 import { PitchCountTab } from "./features/plan/PitchCountTab";
+import { TryoutsTab } from "./features/plan/TryoutsTab";
 import { DrillsTab } from "./features/deliver/DrillsTab";
 import { PracticePlanTab } from "./features/deliver/PracticePlanTab";
 import { DiamondBoardTab } from "./features/deliver/DiamondBoardTab";
@@ -38,6 +39,7 @@ const PLAN_TABS = [
   { key: "attendance", label: "Attendance", icon: ClipboardCheck },
   { key: "lineup", label: "Lineup", icon: ListOrdered },
   { key: "pitch", label: "Pitch Count", icon: Activity },
+  { key: "tryouts", label: "Tryouts", icon: ClipboardX },
   { key: "logistics", label: "Logistics", icon: Package },
 ] as const;
 const DELIVER_TABS = [
@@ -65,7 +67,10 @@ function BaseballMark() {
 }
 
 function exportData() {
-  const { set: _s, addPlayer: _a, updatePlayer: _u, removePlayer: _r, addToPlan: _p, saveSession: _v, archiveGame: _g, removeFrom: _f, resetAll: _x, ...data } = useNotepad.getState();
+  const {
+    set: _s, addPlayer: _a, updatePlayer: _u, removePlayer: _r, addToPlan: _p, saveSession: _v, archiveGame: _g,
+    removeFrom: _f, resetAll: _x, addProspect: _ap, updateProspect: _up, promoteProspect: _pp, ...data
+  } = useNotepad.getState();
   const blob = new Blob([JSON.stringify({ app: "baseball-notepad", version: 1, data }, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -153,6 +158,7 @@ export default function App() {
             {planTab === "attendance" && <AttendanceTab />}
             {planTab === "lineup" && <LineupTab />}
             {planTab === "pitch" && <PitchCountTab />}
+            {planTab === "tryouts" && <TryoutsTab />}
             {planTab === "logistics" && <LogisticsTab />}
           </>
         )}
