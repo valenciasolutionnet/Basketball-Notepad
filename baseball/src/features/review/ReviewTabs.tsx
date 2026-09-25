@@ -1,9 +1,11 @@
-import { useMemo } from "react";
-import { Award, NotebookPen, Trophy, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Award, Download, NotebookPen, Printer, Trophy, Trash2 } from "lucide-react";
 import { useNotepad } from "../../store";
 import { battingByPlayer, rate } from "../../lib/stats";
+import { buildCsv, downloadCsv } from "../../lib/csv";
 import type { PlateAppearance, ReviewRatings } from "../../lib/types";
 import { Button, Empty, IconBtn, Panel, Rating, SubHeading, TextArea, cx } from "../../components/ui";
+import { SeasonPrintReport } from "./SeasonPrintReport";
 
 const RATING_META: { key: keyof ReviewRatings; label: string; description: string; group: "coach" | "team" }[] = [
   { key: "prep", label: "Preparation", description: "Plan ready, stations set, gear on the field before players arrived", group: "coach" },
@@ -51,7 +53,9 @@ export function ReflectTab() {
 export function SeasonTab() {
   const games = useNotepad((s) => s.finishedGames);
   const players = useNotepad((s) => s.players);
+  const teamName = useNotepad((s) => s.teamName);
   const set = useNotepad((s) => s.set);
+  const [showReport, setShowReport] = useState(false);
   const names = new Map(players.map((p) => [p.id, p.name]));
 
   const { lines, pitching, record } = useMemo(() => {
@@ -73,9 +77,48 @@ export function SeasonTab() {
     return { lines, pitching: Object.entries(pitches).sort((a, b) => b[1] - a[1]), record: { w, l, t } };
   }, [games]);
 
+  const exportCsv = () => {
+    const rows: unknown[][] = [["Games"], ["Date", "Opponent", "Result", "Score"]];
+    for (const g of [...games].reverse()) {
+      const res = g.runsUs > g.runsThem ? "W" : g.runsUs < g.runsThem ? "L" : "T";
+      rows.push([new Date(g.date).toLocaleDateString(), g.opponentName, res, `${g.runsUs}-${g.runsThem}`]);
+    }
+    rows.push([]);
+    rows.push(["Batting"]);
+    rows.push(["Player", "PA", "AB", "H", "2B", "3B", "HR", "RBI", "R", "BB", "K", "SB", "AVG", "OBP", "SLG", "OPS"]);
+    for (const [id, l] of lines) {
+      rows.push([names.get(id) ?? "Former player", l.pa, l.ab, l.h, l.doubles, l.triples, l.hr, l.rbi, l.r, l.bb, l.k, l.sb, rate(l.avg), rate(l.obp), rate(l.slg), rate(l.ops)]);
+    }
+    if (pitching.length > 0) {
+      rows.push([]);
+      rows.push(["Pitches thrown"]);
+      rows.push(["Player", "Pitches"]);
+      for (const [id, n] of pitching) rows.push([names.get(id) ?? "Former player", n]);
+    }
+    downloadCsv(`${(teamName || "baseball-notepad").replace(/[^a-z0-9]+/gi, "-")}-season-${new Date().toISOString().slice(0, 10)}.csv`, buildCsv(rows));
+  };
+
+  if (showReport) {
+    return (
+      <SeasonPrintReport
+        teamName={teamName} games={games} lines={lines} pitching={pitching} record={record} names={names}
+        onClose={() => setShowReport(false)}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
-      <Panel icon={Trophy} title="Season" subtitle={games.length ? `${record.w}-${record.l}${record.t ? `-${record.t}` : ""} in ${games.length} saved game${games.length === 1 ? "" : "s"}` : "Save games from Live Game to build season stats"}>
+      <Panel
+        icon={Trophy} title="Season"
+        subtitle={games.length ? `${record.w}-${record.l}${record.t ? `-${record.t}` : ""} in ${games.length} saved game${games.length === 1 ? "" : "s"}` : "Save games from Live Game to build season stats"}
+        action={
+          <div className="flex gap-1.5">
+            <Button variant="ghost" disabled={games.length === 0} onClick={exportCsv}><Download size={14} /> Export CSV</Button>
+            <Button variant="ghost" disabled={games.length === 0} onClick={() => setShowReport(true)}><Printer size={14} /> Print Season Report</Button>
+          </div>
+        }
+      >
         {games.length === 0 && <Empty>No saved games yet.</Empty>}
         <ul className="flex flex-col gap-1.5">
           {[...games].reverse().map((g) => {
