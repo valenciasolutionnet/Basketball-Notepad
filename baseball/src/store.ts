@@ -6,6 +6,7 @@ import type {
 import { uid } from "./lib/id";
 import { defaultDrills } from "./lib/defaults";
 import { defaultDiagram } from "./lib/diamond";
+import { activeStateKey } from "./lib/teams";
 
 type Updater<T> = T | ((prev: T) => T);
 
@@ -132,7 +133,11 @@ export const useNotepad = create<NotepadState & NotepadActions>()(
       resetAll: () => set(initialState()),
     }),
     {
-      name: "baseballNotepad.state.v1",
+      // Multi-team support (src/lib/teams.ts): this resolves to the active
+      // team's own key (${PREFIX}.state.v1.<teamId>), migrating any legacy
+      // single-team blob the first time it runs. Switching teams rewrites
+      // which key is active and reloads the page — see TeamSwitcher.
+      name: activeStateKey(),
       version: 1,
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => {
