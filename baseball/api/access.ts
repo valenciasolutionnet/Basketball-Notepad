@@ -9,6 +9,7 @@
 //   STRIPE_SECRET_KEY    restricted key with Checkout Sessions: read
 //   STRIPE_PRODUCT_ID    this notepad's Stripe product (prod_…)
 //   ACCESS_ADMIN_KEY     long random string; typed into the admin page
+//   FOUNDING_CAP         founding-coach spots (default 100); raise it to open more
 //   UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN (or KV_REST_API_*)
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
@@ -28,6 +29,11 @@ interface Res {
 const APP = "baseball-notepad";
 const REGISTER_LIMIT_PER_HOUR = 5;
 
+export function foundingCap(): number {
+  const n = Number(process.env.FOUNDING_CAP);
+  return process.env.FOUNDING_CAP && Number.isInteger(n) && n >= 0 ? n : 100;
+}
+
 export interface License {
   code: string;
   email: string;
@@ -35,6 +41,8 @@ export interface License {
   source: "stripe" | "approved" | "granted";
   created: number;
   revoked?: boolean;
+  /** Took a founding spot. Codes issued before the cap existed count as founding. */
+  founding?: boolean;
 }
 export interface Registration {
   id: string;
@@ -102,8 +110,16 @@ async function getJson<T>(key: string): Promise<T | null> {
 }
 const setJson = (key: string, value: unknown) => redis(["SET", key, JSON.stringify(value)]);
 
+/** Founding spots in use: working codes that took a founding spot (revoking a code frees its spot). */
+export const countFounding = (licenses: License[]) => licenses.filter((l) => !l.revoked && l.founding !== false).length;
+
+async function foundingTaken(): Promise<number> {
+  return countFounding(await listByScore<License>(k.licenses, k.license, 5000));
+}
+
 async function issueLicense(email: string, name: string, source: License["source"]): Promise<License> {
-  const lic: License = { code: newCode(), email, name, source, created: Date.now() };
+  const founding = (await foundingTaken()) < foundingCap();
+  const lic: License = { code: newCode(), email, name, source, created: Date.now(), founding };
   await setJson(k.license(lic.code), lic);
   await redis(["ZADD", k.licenses, lic.created, lic.code]);
   return lic;
@@ -182,6 +198,12 @@ async function handle(req: Req, b: Body): Promise<Reply> {
       const lic = await getJson<License>(k.license(code));
       if (!lic || lic.revoked) return [403, { error: "This access code isn't valid." }];
       return [200, { ok: true, code }];
+    }
+
+    case "founding": {
+      const cap = foundingCap();
+      const taken = Math.min(await foundingTaken(), cap);
+      return [200, { cap, taken, left: cap - taken }];
     }
 
     case "register": {
