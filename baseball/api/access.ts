@@ -13,7 +13,7 @@
 //   UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN (or KV_REST_API_*)
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { notifyAdmins } from "./push";
+import { notifyAdmins } from "./push.js";
 
 interface Req {
   method?: string;
