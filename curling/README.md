@@ -55,4 +55,6 @@ Coaches who buy through the Stripe payment link get in automatically. Anyone els
 3. Add these Vercel environment variables (Production): `VITE_ACCESS_GATE=on`, `VITE_STRIPE_PAYMENT_LINK=https://buy.stripe.com/dRmbIU9Ea8RI8ae4Ff1RC0c`, `STRIPE_SECRET_KEY`, `STRIPE_PRODUCT_ID=prod_VJooZbmpNnCDxk`, and `ACCESS_ADMIN_KEY` (a random string of 16+ characters).
 4. Redeploy. Open `https://curling-notepad.vercel.app/?admin` and sign in with `ACCESS_ADMIN_KEY` to approve requests, create codes, or revoke codes.
 
+The Buy card shows "Founding coach: X of 100 spots left", counting working access codes (paid, approved, or granted; revoked codes free their spot). Once it hits the cap it says "Founding spots are gone" and sales continue. To open more spots, set `FOUNDING_CAP` (e.g. `200`) and redeploy.
+
 The demo project never shows the gate.

@@ -69,6 +69,13 @@ export function AccessGate({ children }: { children: ReactNode }) {
   const [codeInput, setCodeInput] = useState("");
   const [showRequest, setShowRequest] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", team: "", note: "" });
+  const [founding, setFounding] = useState<{ cap: number; left: number } | null>(null);
+
+  const locked = state.kind === "locked";
+  useEffect(() => {
+    if (!locked) return;
+    accessApi<{ cap: number; left: number }>({ action: "founding" }).then(setFounding, () => setFounding(null));
+  }, [locked]);
 
   const checkRequest = useCallback(async (id: string): Promise<State> => {
     try {
@@ -208,6 +215,11 @@ export function AccessGate({ children }: { children: ReactNode }) {
       {paymentLink && (
         <Card title="Get Baseball Notepad">
           <p className="mb-3 text-sm text-chalk-dim">One-time purchase. You're in right after checkout.</p>
+          {founding && founding.cap > 0 && (
+            <p className="mb-3 text-sm font-semibold text-[#E0872C]">
+              {founding.left > 0 ? `Founding coach: ${founding.left} of ${founding.cap} spots left` : "Founding spots are gone."}
+            </p>
+          )}
           <a href={paymentLink} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#E0872C] px-4 font-bold text-[#241505]">
             <ShoppingCart size={17} /> Buy now
           </a>

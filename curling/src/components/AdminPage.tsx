@@ -9,7 +9,7 @@ interface Registration {
   status: "pending" | "approved" | "rejected"; code?: string;
 }
 interface License {
-  code: string; email: string; name: string; source: "stripe" | "approved" | "granted"; created: number; revoked?: boolean;
+  code: string; email: string; name: string; source: "stripe" | "approved" | "granted"; created: number; revoked?: boolean; founding?: boolean;
 }
 
 const KEY = "curlingNotepad.adminKey";
@@ -209,6 +209,7 @@ export default function AdminPage() {
               <span className={cx("rounded-full px-2 py-0.5 text-[11px] font-bold uppercase", l.source === "stripe" ? "bg-grass/20 text-grass" : "bg-turf-600 text-chalk-dim")}>
                 {l.source === "stripe" ? "Paid" : l.source}
               </span>
+              {l.founding !== false && <span className="rounded-full bg-[#E0872C]/20 px-2 py-0.5 text-[11px] font-bold uppercase text-[#E0872C]">Founding</span>}
               <span className="text-[11px] text-chalk-dim/70">{when(l.created)}</span>
               {l.revoked ? (
                 <Button variant="ghost" disabled={busy} onClick={() => void act({ action: "admin:restore", code: l.code })}><RotateCcw size={13} /> Restore</Button>
