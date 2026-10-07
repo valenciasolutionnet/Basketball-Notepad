@@ -120,6 +120,8 @@ export interface LiveGame {
   final: boolean;
   updatedAt: number;
   rev: number;
+  /** Share code for cross-device Live Game sync (api/game). */
+  code?: string;
 }
 
 export interface FinishedGame {

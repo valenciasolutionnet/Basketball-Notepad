@@ -195,7 +195,7 @@ export default function App() {
       </main>
 
       <footer className="no-print border-t border-line py-4 text-center text-[11px] text-chalk-dim/70">
-        Curling Notepad · Valencia Solution · Data stays on this device.
+        Curling Notepad · Valencia Solution · Data stays on this device unless you share a Live Game code.
       </footer>
     </div>
   );

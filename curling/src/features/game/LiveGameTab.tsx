@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
-import { Radio, LogOut, Undo2, Flag, Save, Hammer, X } from "lucide-react";
+import { Radio, LogOut, Undo2, Flag, Save, Hammer, X, Users, Copy } from "lucide-react";
 import { useNotepad } from "../../store";
-import { useLiveGame } from "./useLiveGame";
+import { useLiveGame, useLiveGameSync, useJoinGame, type SyncStatus } from "./useLiveGame";
 import {
   createGame, currentEnd, hammer, hammerByEnd, isExtraEnd, isGameOver, MAX_END_POINTS, SHOT_LABELS, STONES_PER_END, throwerFor, totals, type GameAction,
 } from "../../lib/game";
@@ -72,7 +72,47 @@ function StartGame({ onStart }: { onStart: (g: LiveGame) => void }) {
       )}
       <Button className="mt-3 w-full" onClick={start}>Start game</Button>
       {!players.length && <Empty>Add your roster in Plan → Roster and build a Lineup to rate shots by player.</Empty>}
+      <JoinGame />
     </Panel>
+  );
+}
+
+/* --------------------------- join another device --------------------------- */
+
+function JoinGame() {
+  const { join, busy, error } = useJoinGame();
+  const [code, setCode] = useState("");
+  return (
+    <div className="mt-4 border-t border-line pt-3">
+      <SubHeading>Join a game on another phone</SubHeading>
+      <p className="mb-2 text-xs text-chalk-dim">Another coach already scoring? Enter the code shown on their screen to score the same game together.</p>
+      <div className="flex gap-2">
+        <TextInput value={code} onChange={(v) => setCode(v.toUpperCase())} placeholder="Game code, e.g. 7ZBFU" />
+        <Button variant="ghost" onClick={() => join(code)} disabled={busy}><Users size={14} /> {busy ? "Joining…" : "Join"}</Button>
+      </div>
+      {error && <p className="mt-1.5 text-xs text-red-400">{error}</p>}
+    </div>
+  );
+}
+
+const SYNC_LABEL: Record<SyncStatus, string> = { off: "", syncing: "saving…", synced: "synced", offline: "offline — will catch up" };
+
+function ShareCode({ code, status }: { code: string; status: SyncStatus }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard blocked — the code is on screen */ }
+  };
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-chalk-dim">
+      <span className="rounded-md border border-line bg-turf-950 px-2 py-1 font-mono text-sm font-bold tracking-widest text-chalk">CODE {code}</span>
+      <button type="button" onClick={copy} className="inline-flex items-center gap-1 underline"><Copy size={12} /> {copied ? "Copied" : "Copy"}</button>
+      <span>· shared with anyone who has it</span>
+      {SYNC_LABEL[status] && <span className={status === "offline" ? "text-red-400" : "text-clay"}>· {SYNC_LABEL[status]}</span>}
+    </div>
   );
 }
 
@@ -255,6 +295,7 @@ export function LiveGameTab() {
   const archiveGame = useNotepad((s) => s.archiveGame);
   const finished = useNotepad((s) => s.finishedGames);
   const [view, setView] = useState<"shots" | "log">("shots");
+  const sync = useLiveGameSync();
 
   if (!g) return <StartGame onStart={start} />;
 
@@ -294,6 +335,7 @@ export function LiveGameTab() {
             <Button variant="ghost" className="min-h-9" title="Leave game" onClick={() => confirm(saved ? "Close this game?" : "Close this game? Unsaved scoring is lost.") && leave()}><LogOut size={14} /></Button>
           </div>
         </div>
+        {g.code && <ShareCode code={g.code} status={sync} />}
         <Scoreboard g={g} />
       </section>
 
