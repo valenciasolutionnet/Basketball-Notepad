@@ -7,6 +7,7 @@ import { useNotepad } from "./store";
 import { Tabs, cx } from "./components/ui";
 import { TargetsTab, AttendanceTab, LogisticsTab } from "./features/plan/basicTabs";
 import { RosterTab } from "./features/plan/RosterTab";
+import { SharedRosterBanner } from "./features/plan/RosterShare"; // SPEC-034
 import { LineupTab } from "./features/plan/LineupTab";
 import { PitchCountTab } from "./features/plan/PitchCountTab";
 import { TryoutsTab } from "./features/plan/TryoutsTab";
@@ -150,6 +151,7 @@ export default function App() {
       </header>
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-4 pb-[calc(env(safe-area-inset-bottom)+24px)] pt-4">
+        <SharedRosterBanner onAdded={() => { setPhase("plan"); setPlanTab("roster"); }} />
         {phase === "plan" && (
           <>
             <Tabs tabs={[...PLAN_TABS]} active={planTab} onChange={setPlanTab} />
