@@ -3,6 +3,7 @@ import { Users, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import { useNotepad } from "../../store";
 import { POSITIONS, type Hand, type Player } from "../../lib/types";
 import { AddRow, Empty, IconBtn, Panel, Segmented, TextArea, TextInput, cx } from "../../components/ui";
+import { ShareRosterButton } from "./RosterShare";
 
 function PlayerCard({ p }: { p: Player }) {
   const update = useNotepad((s) => s.updatePlayer);
@@ -60,6 +61,7 @@ export function RosterTab() {
   return (
     <Panel icon={Users} title="Roster" subtitle="Positions, throwing hand, and delivery notes">
       <AddRow placeholder="Add player name" onAdd={addPlayer} />
+      <ShareRosterButton />
       {players.length === 0 && <Empty>No players yet. Add your team to unlock lineups and live scoring.</Empty>}
       <ul className="grid gap-2.5 md:grid-cols-2">
         {players.map((p) => <PlayerCard key={p.id} p={p} />)}
