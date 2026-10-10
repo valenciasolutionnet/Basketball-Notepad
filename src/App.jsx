@@ -8,6 +8,7 @@ import { TargetsTab, PlayerNotesTab, PlayerProfilesTab, AttendanceTab, Logistics
 import { WarmupTab, DrillsTab, PracticePlanTab, XOTab, DrawBoardTab } from "./deliverTabs.jsx";
 import { CoachingTab, ExperienceTab, GratitudeTab, DevelopmentTab, ReviewNotesTab, TrendsTab } from "./reviewTabs.jsx";
 import { LiveGameTab } from "./LiveGameTab.jsx";
+import { Footer } from "./legal.jsx";
 
 const STORAGE_KEY = "basketballNotepad.state.v1";
 
@@ -233,6 +234,8 @@ export default function App() {
           </>
         )}
       </main>
+
+      <Footer />
     </div>
   );
 }
