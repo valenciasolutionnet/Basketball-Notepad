@@ -3,8 +3,10 @@ import { Radio, RefreshCw, LogOut, Minus, Plus, Undo2, Flag } from "lucide-react
 import { C, syncId } from "./theme.jsx";
 import { Panel, TextInput, IconBtn, SubHeading } from "./ui.jsx";
 import { Court, ShotLegend, ShotLine, ShotLocationPicker, freeThrowSpot } from "./ShotChartTab.jsx";
+import { applyOps, emptyStats, normalizeGame } from "./gameOps.js";
 
 const CODE_KEY = "basketballNotepad.liveGameCode";
+const MAX_SAVE_ATTEMPTS = 5;
 
 function readSavedCode() {
   try {
@@ -22,23 +24,11 @@ function writeSavedCode(code) {
   }
 }
 
-function normalizeGame(g) {
-  return { ...g, messages: g.messages || [], shots: g.shots || [], players: g.players || [] };
-}
-
 function generateGameCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous 0/O/1/I
   let code = "";
   for (let i = 0; i < 5; i++) code += chars[Math.floor(Math.random() * chars.length)];
   return code;
-}
-
-function emptyStats() {
-  return {
-    pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, foul: 0, to: 0,
-    fgm: 0, fga: 0, ftm: 0, fta: 0,
-    onCourt: false, secondsPlayed: 0, checkedInAt: null,
-  };
 }
 
 const STAT_LABELS = { reb: "REB", ast: "AST", stl: "STL", blk: "BLK", foul: "FOUL", to: "TO" };
@@ -54,21 +44,29 @@ function livePlayedSeconds(p) {
   return (p.secondsPlayed || 0) + extra;
 }
 
+// Returns { game, version } or null when the code doesn't exist.
 async function fetchGame(code) {
   const res = await fetch(`/api/game?code=${encodeURIComponent(code)}`);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Sync failed (${res.status})`);
   const data = await res.json();
-  return data.game;
+  return { game: normalizeGame(data.game), version: Number(data.version || 0) };
 }
 
-async function saveGameRemote(code, game) {
+// Returns { ok: true, version } | { conflict: true, game, version } | { taken: true }.
+async function saveGameRemote(code, game, baseVersion, create = false) {
   const res = await fetch(`/api/game?code=${encodeURIComponent(code)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(game),
+    body: JSON.stringify({ game, baseVersion, create }),
   });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 409) {
+    if (data.taken) return { taken: true };
+    return { conflict: true, game: data.game ? normalizeGame(data.game) : null, version: Number(data.version || 0) };
+  }
   if (!res.ok) throw new Error(`Sync failed (${res.status})`);
+  return { ok: true, version: Number(data.version) };
 }
 
 const miniBtnStyle = {
@@ -96,19 +94,26 @@ export function LiveGameTab({ players, onEndGame }) {
   const [chartScope, setChartScope] = useState("player");
   const [, setTick] = useState(0);
 
-  // Latest game and code, readable synchronously so updates never act on stale state.
-  const gameRef = useRef(null);
+  // Sync model: `base` is the last game the server confirmed, with its version.
+  // `queue` holds this tablet's actions not yet saved. What the coach sees is
+  // always base + queue, so a newer copy from the other coach never hides a
+  // local tap, and a rejected save just re-applies the queue on the newer base.
+  const baseRef = useRef(null); // { game, version }
+  const queueRef = useRef([]);
+  const flushingRef = useRef(false);
   const codeRef = useRef("");
-  const pendingSaves = useRef(0);
 
-  const applyGame = (g) => {
-    gameRef.current = g;
-    setGame(g);
-  };
+  const current = () => (baseRef.current ? applyOps(baseRef.current.game, queueRef.current) : null);
+  const render = () => setGame(current());
+
   const applyCode = (c) => {
     codeRef.current = c;
     setCode(c);
     writeSavedCode(c);
+  };
+  const setBase = (game, version) => {
+    baseRef.current = { game, version };
+    render();
   };
 
   useEffect(() => {
@@ -116,29 +121,67 @@ export function LiveGameTab({ players, onEndGame }) {
     return () => clearInterval(id);
   }, []);
 
-  const saveGame = async (nextGame, c) => {
-    pendingSaves.current += 1;
+  const flush = async () => {
+    if (flushingRef.current || !baseRef.current || queueRef.current.length === 0) return;
+    flushingRef.current = true;
+    const c = codeRef.current;
     try {
-      await saveGameRemote(c || codeRef.current, nextGame);
-      setLastSynced(new Date());
-      setStatus((s) => (s.startsWith("Couldn't sync") ? "" : s));
+      for (let attempt = 0; attempt < MAX_SAVE_ATTEMPTS && queueRef.current.length > 0; attempt++) {
+        const sent = queueRef.current.length;
+        const base = baseRef.current;
+        const next = { ...applyOps(base.game, queueRef.current.slice(0, sent)), updatedAt: Date.now() };
+        const result = await saveGameRemote(c, next, base.version);
+        if (codeRef.current !== c) return; // coach left this game mid-save
+        if (result.ok) {
+          queueRef.current = queueRef.current.slice(sent);
+          setBase(next, result.version);
+          setLastSynced(new Date());
+          setStatus("");
+          attempt = -1; // saved; keep going if more taps queued up meanwhile
+        } else if (result.conflict && result.game) {
+          // The other coach saved first: take their game and re-apply ours on top.
+          setBase(result.game, result.version);
+        } else {
+          setStatus("This game has expired or was removed — start a new one.");
+          return;
+        }
+      }
+      if (queueRef.current.length > 0) {
+        // Lost the race several times in a row: back off briefly (randomized so
+        // both tablets don't retry in lockstep) instead of waiting for the next refresh.
+        setTimeout(() => {
+          if (codeRef.current === c) flush();
+        }, 200 + Math.random() * 400);
+      }
     } catch (e) {
-      setStatus("Couldn't sync that update — check your connection.");
+      if (codeRef.current === c) setStatus("Couldn't sync — your taps are kept and will retry automatically.");
     } finally {
-      pendingSaves.current -= 1;
+      flushingRef.current = false;
     }
   };
 
+  const dispatch = (op) => {
+    if (!baseRef.current) return;
+    const q = queueRef.current;
+    const last = q[q.length - 1];
+    // Typing a team name sends one op per keystroke; keep only the latest.
+    if (op.type === "setText" && last && last.type === "setText" && last.field === op.field && !flushingRef.current) {
+      queueRef.current = [...q.slice(0, -1), op];
+    } else {
+      queueRef.current = [...q, op];
+    }
+    render();
+    flush();
+  };
+
   const pullGame = async (c) => {
-    // A refresh that starts mid-save would bring back the pre-tap copy.
-    if (pendingSaves.current > 0) return;
+    if (flushingRef.current) return;
     try {
       const remote = await fetchGame(c);
-      if (!remote || c !== codeRef.current || pendingSaves.current > 0) return;
-      const local = gameRef.current;
-      if (local && (remote.updatedAt || 0) < (local.updatedAt || 0)) return;
-      applyGame(normalizeGame(remote));
+      if (!remote || c !== codeRef.current || flushingRef.current) return;
+      if (!baseRef.current || remote.version > baseRef.current.version) setBase(remote.game, remote.version);
       setLastSynced(new Date());
+      if (queueRef.current.length > 0) flush(); // retry taps that failed to save earlier
     } catch (e) {
       /* transient network hiccup while polling — ignore */
     }
@@ -146,7 +189,6 @@ export function LiveGameTab({ players, onEndGame }) {
 
   const startNewGame = async () => {
     const source = players.some((p) => p.present) ? players.filter((p) => p.present) : players;
-    const c = generateGameCode();
     const initial = {
       teamName: "Us",
       opponentName: "Opponent",
@@ -158,11 +200,25 @@ export function LiveGameTab({ players, onEndGame }) {
       startedAt: Date.now(),
       updatedAt: Date.now(),
     };
-    setStatus("");
-    applyCode(c);
-    applyGame(initial);
-    setSelectedPlayerId(initial.players[0] ? initial.players[0].id : null);
-    await saveGame(initial, c);
+    setStatus("Starting…");
+    try {
+      for (let i = 0; i < MAX_SAVE_ATTEMPTS; i++) {
+        const c = generateGameCode();
+        const result = await saveGameRemote(c, initial, 0, true);
+        if (result.taken) continue; // code already used by another live game
+        if (!result.ok) break;
+        queueRef.current = [];
+        applyCode(c);
+        setBase(initial, result.version);
+        setSelectedPlayerId(initial.players[0] ? initial.players[0].id : null);
+        setLastSynced(new Date());
+        setStatus("");
+        return;
+      }
+      setStatus("Couldn't create a game code — try again.");
+    } catch (e) {
+      setStatus("Couldn't start the game — check your connection and try again.");
+    }
   };
 
   const joinCode = async (raw, { silent } = {}) => {
@@ -172,10 +228,10 @@ export function LiveGameTab({ players, onEndGame }) {
     try {
       const remote = await fetchGame(c);
       if (remote) {
-        const g = normalizeGame(remote);
+        queueRef.current = [];
         applyCode(c);
-        applyGame(g);
-        setSelectedPlayerId(g.players[0] ? g.players[0].id : null);
+        setBase(remote.game, remote.version);
+        setSelectedPlayerId(remote.game.players[0] ? remote.game.players[0].id : null);
         setLastSynced(new Date());
         setStatus("");
       } else {
@@ -198,20 +254,23 @@ export function LiveGameTab({ players, onEndGame }) {
 
   const resetLocal = () => {
     applyCode("");
-    applyGame(null);
+    baseRef.current = null;
+    queueRef.current = [];
+    setGame(null);
     setSelectedPlayerId(null);
     setPendingShot(null);
     setStatus("");
   };
 
   const leaveGame = () => {
-    if (!window.confirm(`Leave game ${code}? You can rejoin later with the code.`)) return;
+    const unsaved = queueRef.current.length > 0 ? " Some recent taps haven't synced yet and will be lost." : "";
+    if (!window.confirm(`Leave game ${code}? You can rejoin later with the code.${unsaved}`)) return;
     resetLocal();
   };
 
   const endGame = () => {
     if (!window.confirm("End this game and save the stats and shot chart to Review?")) return;
-    const g = gameRef.current;
+    const g = current();
     if (g && onEndGame) onEndGame({ ...g, code: codeRef.current, endedAt: Date.now() });
     resetLocal();
   };
@@ -223,65 +282,28 @@ export function LiveGameTab({ players, onEndGame }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code]);
 
-  const updateGame = (fn) => {
-    const current = gameRef.current;
-    if (!current) return;
-    const next = { ...fn(current), updatedAt: Date.now() };
-    applyGame(next);
-    saveGame(next);
-  };
-
-  const addTeamScore = (n) => updateGame((g) => ({ ...g, usScore: Math.max(0, g.usScore + n) }));
-  const addOppScore = (n) => updateGame((g) => ({ ...g, oppScore: Math.max(0, g.oppScore + n) }));
-  const bumpStat = (playerId, key, delta) => {
-    updateGame((g) => ({
-      ...g,
-      players: g.players.map((p) => (p.id === playerId ? { ...p, [key]: Math.max(0, (p[key] || 0) + delta) } : p)),
-    }));
-  };
-
-  const applyShotStats = (p, points, made, sign) => {
-    const m = made ? sign : 0;
-    if (points === 1) {
-      return { ...p, ftm: Math.max(0, (p.ftm || 0) + m), fta: Math.max(0, (p.fta || 0) + sign), pts: Math.max(0, p.pts + m) };
-    }
-    return { ...p, fgm: Math.max(0, (p.fgm || 0) + m), fga: Math.max(0, (p.fga || 0) + sign), pts: Math.max(0, p.pts + m * points) };
-  };
+  const addTeamScore = (n) => dispatch({ type: "score", side: "us", delta: n });
+  const addOppScore = (n) => dispatch({ type: "score", side: "opp", delta: n });
+  const bumpStat = (playerId, key, delta) => dispatch({ type: "stat", playerId, key, delta });
+  const setTeamText = (field, value) => dispatch({ type: "setText", field, value });
 
   // loc is { x, y } on the court, or null when the coach skips placing it.
   const logShot = (playerId, points, made, loc) => {
-    updateGame((g) => {
-      const shots = g.shots || [];
-      const spot = points === 1 ? freeThrowSpot(shots.filter((s) => s.playerId === playerId && s.pts === 1).length) : loc;
-      const shot = {
-        id: syncId(), playerId, pts: points, made,
-        x: spot ? spot.x : null, y: spot ? spot.y : null, t: Date.now(),
-      };
-      return {
-        ...g,
-        usScore: made ? Math.max(0, g.usScore + points) : g.usScore,
-        players: g.players.map((p) => (p.id === playerId ? applyShotStats(p, points, made, 1) : p)),
-        shots: [...shots, shot],
-      };
+    const g = current();
+    if (!g) return;
+    const spot = points === 1 ? freeThrowSpot(g.shots.filter((s) => s.playerId === playerId && s.pts === 1).length) : loc;
+    dispatch({
+      type: "shot",
+      shot: { id: syncId(), playerId, pts: points, made, x: spot ? spot.x : null, y: spot ? spot.y : null, t: Date.now() },
     });
   };
 
   const undoLastShot = (playerId) => {
-    updateGame((g) => {
-      const shots = g.shots || [];
-      let idx = -1;
-      for (let i = shots.length - 1; i >= 0; i--) {
-        if (shots[i].playerId === playerId) { idx = i; break; }
-      }
-      if (idx === -1) return g;
-      const last = shots[idx];
-      return {
-        ...g,
-        usScore: last.made ? Math.max(0, g.usScore - last.pts) : g.usScore,
-        players: g.players.map((p) => (p.id === playerId ? applyShotStats(p, last.pts, last.made, -1) : p)),
-        shots: shots.filter((_, i) => i !== idx),
-      };
-    });
+    const g = current();
+    if (!g) return;
+    const mine = g.shots.filter((s) => s.playerId === playerId);
+    if (mine.length === 0) return;
+    dispatch({ type: "undoShot", shotId: mine[mine.length - 1].id });
   };
 
   const requestShot = (playerId, points, made) => {
@@ -295,25 +317,15 @@ export function LiveGameTab({ players, onEndGame }) {
   };
 
   const toggleCourt = (playerId) => {
-    updateGame((g) => ({
-      ...g,
-      players: g.players.map((p) => {
-        if (p.id !== playerId) return p;
-        if (p.onCourt) {
-          const elapsed = p.checkedInAt ? (Date.now() - p.checkedInAt) / 1000 : 0;
-          return { ...p, onCourt: false, secondsPlayed: (p.secondsPlayed || 0) + elapsed, checkedInAt: null };
-        }
-        return { ...p, onCourt: true, checkedInAt: Date.now() };
-      }),
-    }));
+    const g = current();
+    const p = g && g.players.find((x) => x.id === playerId);
+    if (!p) return;
+    dispatch({ type: "court", playerId, on: !p.onCourt, at: Date.now() });
   };
 
   const sendMessage = (text) => {
     if (!text.trim()) return;
-    updateGame((g) => ({
-      ...g,
-      messages: [...(g.messages || []), { id: syncId(), text: text.trim(), from: myLabel || "Coach", time: Date.now() }].slice(-30),
-    }));
+    dispatch({ type: "message", message: { id: syncId(), text: text.trim(), from: myLabel || "Coach", time: Date.now() } });
     setMessageDraft("");
   };
 
@@ -417,7 +429,7 @@ export function LiveGameTab({ players, onEndGame }) {
             <div style={{ flex: 1, textAlign: "center" }}>
               <input
                 value={game.teamName}
-                onChange={(e) => updateGame((g) => ({ ...g, teamName: e.target.value }))}
+                onChange={(e) => setTeamText("teamName", e.target.value)}
                 style={{
                   width: "100%", textAlign: "center", background: "transparent", border: "none", outline: "none",
                   color: C.chalk, fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 12.5, marginBottom: 2,
@@ -450,7 +462,7 @@ export function LiveGameTab({ players, onEndGame }) {
             <div style={{ flex: 1, textAlign: "center" }}>
               <input
                 value={game.opponentName}
-                onChange={(e) => updateGame((g) => ({ ...g, opponentName: e.target.value }))}
+                onChange={(e) => setTeamText("opponentName", e.target.value)}
                 style={{
                   width: "100%", textAlign: "center", background: "transparent", border: "none", outline: "none",
                   color: C.chalk, fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 12.5, marginBottom: 2,
@@ -638,8 +650,8 @@ export function LiveGameTab({ players, onEndGame }) {
                           {selectedPlayer[key] || 0}
                         </div>
                         <div style={{ display: "flex", justifyContent: "center", gap: 4 }}>
-                          <button onClick={() => bumpStat(selectedPlayer.id, key, -1)} style={miniBtnStyle}><Minus size={11} /></button>
-                          <button onClick={() => bumpStat(selectedPlayer.id, key, 1)} style={miniBtnStyle}><Plus size={11} /></button>
+                          <button aria-label={`Remove ${STAT_LABELS[key]}`} onClick={() => bumpStat(selectedPlayer.id, key, -1)} style={miniBtnStyle}><Minus size={11} /></button>
+                          <button aria-label={`Add ${STAT_LABELS[key]}`} onClick={() => bumpStat(selectedPlayer.id, key, 1)} style={miniBtnStyle}><Plus size={11} /></button>
                         </div>
                       </div>
                     ))}
