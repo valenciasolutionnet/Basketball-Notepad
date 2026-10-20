@@ -18,6 +18,13 @@ export const C = {
 let idCounter = 1;
 export const uid = () => idCounter++;
 
+// IDs for anything shared between tablets (messages, shots). The local counter
+// restarts at 1 on every device, so it would collide across coaches.
+export const syncId = () =>
+  (typeof crypto !== "undefined" && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
 // Persisted state can contain ids created in a previous session. Bump the
 // counter past the highest id we find so newly created items never collide
 // with restored ones.

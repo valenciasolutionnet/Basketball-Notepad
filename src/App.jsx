@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  ClipboardList, Zap, Radio, Award, Target, Users, AlertTriangle, User,
+  ClipboardList, Zap, Radio, Award, Target, Users, AlertTriangle, User, Crosshair,
 } from "lucide-react";
 import { C, uid, recoverIdCounter, defaultDrills, defaultWarmups, createDiagram, BasketballIcon } from "./theme.jsx";
 import { PhaseButton, TabPill } from "./ui.jsx";
@@ -8,8 +8,10 @@ import { TargetsTab, PlayerNotesTab, PlayerProfilesTab, AttendanceTab, Logistics
 import { WarmupTab, DrillsTab, PracticePlanTab, XOTab, DrawBoardTab } from "./deliverTabs.jsx";
 import { CoachingTab, ExperienceTab, GratitudeTab, DevelopmentTab, ReviewNotesTab, TrendsTab } from "./reviewTabs.jsx";
 import { LiveGameTab } from "./LiveGameTab.jsx";
+import { ShotChartTab } from "./ShotChartTab.jsx";
 
 const STORAGE_KEY = "basketballNotepad.state.v1";
+const PHASE_KEY = "basketballNotepad.phase";
 
 function defaultState() {
   const diagram = createDiagram("Offense Play 1", "offense");
@@ -35,6 +37,7 @@ function defaultState() {
     positives: "",
     next: "",
     sessions: [],
+    games: [],
   };
 }
 
@@ -59,22 +62,90 @@ const PHASES = [
 
 const PLAN_TABS = ["targets", "connections", "challenges", "players", "attendance", "logistics"];
 const DELIVER_TABS = ["warmup", "drills", "plan", "xo", "draw"];
-const REVIEW_TABS = ["coaching", "experience", "gratitude", "development", "notes", "trends"];
+const REVIEW_TABS = ["coaching", "experience", "gratitude", "development", "notes", "shots", "trends"];
+
+const PLAN_TAB_META = {
+  targets: { icon: Target, label: "Targets" },
+  connections: { icon: Users, label: "Connections" },
+  challenges: { icon: AlertTriangle, label: "Challenges" },
+  players: { icon: User, label: "Players" },
+  attendance: { icon: ClipboardList, label: "Attendance" },
+  logistics: { icon: ClipboardList, label: "Logistics" },
+};
+const DELIVER_TAB_META = {
+  warmup: { icon: Zap, label: "Warm-Up" },
+  drills: { icon: Zap, label: "Drills" },
+  plan: { icon: ClipboardList, label: "Practice Plan" },
+  xo: { icon: ClipboardList, label: "X's and O's" },
+  draw: { icon: ClipboardList, label: "Draw Board" },
+};
+const REVIEW_TAB_META = {
+  coaching: { icon: Award, label: "My Coaching" },
+  experience: { icon: Award, label: "Experience" },
+  gratitude: { icon: Award, label: "Gratitude" },
+  development: { icon: Award, label: "Development" },
+  notes: { icon: Award, label: "Notes" },
+  shots: { icon: Crosshair, label: "Shot Chart" },
+  trends: { icon: Award, label: "Trends" },
+};
+
+function loadPhase() {
+  try {
+    const p = localStorage.getItem(PHASE_KEY);
+    return PHASES.some((x) => x.key === p) ? p : "plan";
+  } catch {
+    return "plan";
+  }
+}
+
+// Keep only what Review needs from a finished live game.
+function archiveGame(game) {
+  return {
+    code: game.code,
+    endedAt: game.endedAt,
+    teamName: game.teamName,
+    opponentName: game.opponentName,
+    usScore: game.usScore,
+    oppScore: game.oppScore,
+    players: (game.players || []).map(({ id, name, pts, reb, ast, stl, blk, foul, to, fgm, fga, ftm, fta, secondsPlayed }) => ({
+      id, name, pts, reb, ast, stl, blk, foul, to, fgm, fga, ftm, fta, secondsPlayed,
+    })),
+    shots: game.shots || [],
+  };
+}
 
 export default function App() {
   const [state, setState] = useState(loadState);
-  const [phase, setPhase] = useState("plan");
+  const [phase, setPhase] = useState(loadPhase);
   const [planTab, setPlanTab] = useState("targets");
   const [deliverTab, setDeliverTab] = useState("warmup");
   const [reviewTab, setReviewTab] = useState("coaching");
 
+  // Debounced so rapid changes (Draw Board strokes) don't re-serialize everything each time.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch {
+        /* storage full or unavailable — practice continues, just unsaved */
+      }
+    }, 400);
+    return () => clearTimeout(id);
+  }, [state]);
+
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(PHASE_KEY, phase);
     } catch {
-      /* storage full or unavailable — practice continues, just unsaved */
+      /* ignore */
     }
-  }, [state]);
+  }, [phase]);
+
+  // One entry per game code: ending the same game again (e.g. after re-joining) replaces it.
+  const saveFinishedGame = (game) => {
+    const entry = archiveGame(game);
+    setState((s) => ({ ...s, games: [...(s.games || []).filter((g) => g.code !== entry.code), entry] }));
+  };
 
   const set = (key) => (value) => setState((s) => ({ ...s, [key]: typeof value === "function" ? value(s[key]) : value }));
 
@@ -96,6 +167,11 @@ export default function App() {
       attendance: presentCount,
       targetsDone,
       targetsTotal: state.targets.length,
+      gratitude: state.gratitude,
+      development: state.development,
+      worked: state.worked,
+      positives: state.positives,
+      next: state.next,
     };
     setState((s) => ({
       ...s,
@@ -111,29 +187,6 @@ export default function App() {
     }));
   };
 
-  const planTabMeta = useMemo(() => ({
-    targets: { icon: Target, label: "Targets" },
-    connections: { icon: Users, label: "Connections" },
-    challenges: { icon: AlertTriangle, label: "Challenges" },
-    players: { icon: User, label: "Players" },
-    attendance: { icon: ClipboardList, label: "Attendance" },
-    logistics: { icon: ClipboardList, label: "Logistics" },
-  }), []);
-  const deliverTabMeta = useMemo(() => ({
-    warmup: { icon: Zap, label: "Warm-Up" },
-    drills: { icon: Zap, label: "Drills" },
-    plan: { icon: ClipboardList, label: "Practice Plan" },
-    xo: { icon: ClipboardList, label: "X's and O's" },
-    draw: { icon: ClipboardList, label: "Draw Board" },
-  }), []);
-  const reviewTabMeta = useMemo(() => ({
-    coaching: { icon: Award, label: "My Coaching" },
-    experience: { icon: Award, label: "Experience" },
-    gratitude: { icon: Award, label: "Gratitude" },
-    development: { icon: Award, label: "Development" },
-    notes: { icon: Award, label: "Notes" },
-    trends: { icon: Award, label: "Trends" },
-  }), []);
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column" }}>
@@ -160,7 +213,7 @@ export default function App() {
           <>
             <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto", paddingBottom: 2 }}>
               {PLAN_TABS.map((t) => (
-                <TabPill key={t} active={planTab === t} onClick={() => setPlanTab(t)} icon={planTabMeta[t].icon} label={planTabMeta[t].label} />
+                <TabPill key={t} active={planTab === t} onClick={() => setPlanTab(t)} icon={PLAN_TAB_META[t].icon} label={PLAN_TAB_META[t].label} />
               ))}
             </div>
             {planTab === "targets" && <TargetsTab targets={state.targets} setTargets={set("targets")} />}
@@ -194,7 +247,7 @@ export default function App() {
           <>
             <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto", paddingBottom: 2 }}>
               {DELIVER_TABS.map((t) => (
-                <TabPill key={t} active={deliverTab === t} onClick={() => setDeliverTab(t)} icon={deliverTabMeta[t].icon} label={deliverTabMeta[t].label} />
+                <TabPill key={t} active={deliverTab === t} onClick={() => setDeliverTab(t)} icon={DELIVER_TAB_META[t].icon} label={DELIVER_TAB_META[t].label} />
               ))}
             </div>
             {deliverTab === "warmup" && <WarmupTab warmups={state.warmups} setWarmups={set("warmups")} onAddToPlan={addToPracticePlan} />}
@@ -209,13 +262,16 @@ export default function App() {
           </>
         )}
 
-        {phase === "game" && <LiveGameTab players={players} />}
+        {/* Stays mounted so switching phases mid-game keeps the code, score and sync alive. */}
+        <div style={{ display: phase === "game" ? "block" : "none" }}>
+          <LiveGameTab players={players} onEndGame={saveFinishedGame} />
+        </div>
 
         {phase === "review" && (
           <>
             <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto", paddingBottom: 2 }}>
               {REVIEW_TABS.map((t) => (
-                <TabPill key={t} active={reviewTab === t} onClick={() => setReviewTab(t)} icon={reviewTabMeta[t].icon} label={reviewTabMeta[t].label} />
+                <TabPill key={t} active={reviewTab === t} onClick={() => setReviewTab(t)} icon={REVIEW_TAB_META[t].icon} label={REVIEW_TAB_META[t].label} />
               ))}
             </div>
             {reviewTab === "coaching" && <CoachingTab coaching={state.coaching} setCoaching={set("coaching")} />}
@@ -229,6 +285,7 @@ export default function App() {
                 next={state.next} setNext={set("next")}
               />
             )}
+            {reviewTab === "shots" && <ShotChartTab games={state.games || []} setGames={set("games")} />}
             {reviewTab === "trends" && <TrendsTab sessions={state.sessions} onSave={saveSession} />}
           </>
         )}

@@ -83,7 +83,7 @@ export function TrendsTab({ sessions, onSave }) {
         <Save size={15} strokeWidth={2.5} /> Save this session &amp; start a new one
       </button>
       <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, color: C.chalkFaint, margin: "0 0 4px" }}>
-        Archives today's ratings and targets, then clears Targets, ratings, gratitude, development and notes for your next practice. Roster and saved plays stay put.
+        Archives today's ratings, targets, gratitude, development and notes, then clears them for your next practice. Roster and saved plays stay put.
       </p>
 
       {sessions.length === 0 ? (
