@@ -39,8 +39,9 @@ function versionKeyFor(code) {
 // Sends the command as a JSON array in the request body, so large game
 // payloads (shot charts) aren't squeezed into the URL.
 async function upstash(command) {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  // Vercel's Storage/Marketplace Upstash integration may expose KV_* names.
+  const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
   if (!url || !token) {
     throw new Error("NOT_CONFIGURED");
   }
