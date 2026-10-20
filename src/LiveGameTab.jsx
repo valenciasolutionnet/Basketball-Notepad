@@ -1,7 +1,30 @@
-import { useState, useEffect } from "react";
-import { Radio, RefreshCw, LogOut, Minus, Plus } from "lucide-react";
-import { C, uid } from "./theme.jsx";
+import { useState, useEffect, useRef } from "react";
+import { Radio, RefreshCw, LogOut, Minus, Plus, Undo2, Flag } from "lucide-react";
+import { C, syncId } from "./theme.jsx";
 import { Panel, TextInput, IconBtn, SubHeading } from "./ui.jsx";
+import { Court, ShotLegend, ShotLine, ShotLocationPicker, freeThrowSpot } from "./ShotChartTab.jsx";
+
+const CODE_KEY = "basketballNotepad.liveGameCode";
+
+function readSavedCode() {
+  try {
+    return localStorage.getItem(CODE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+function writeSavedCode(code) {
+  try {
+    if (code) localStorage.setItem(CODE_KEY, code);
+    else localStorage.removeItem(CODE_KEY);
+  } catch {
+    /* storage unavailable — game still works, just won't resume after reload */
+  }
+}
+
+function normalizeGame(g) {
+  return { ...g, messages: g.messages || [], shots: g.shots || [], players: g.players || [] };
+}
 
 function generateGameCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous 0/O/1/I
@@ -60,7 +83,7 @@ function shotBtnStyle(accent) {
   };
 }
 
-export function LiveGameTab({ players }) {
+export function LiveGameTab({ players, onEndGame }) {
   const [code, setCode] = useState("");
   const [codeInput, setCodeInput] = useState("");
   const [game, setGame] = useState(null);
@@ -69,7 +92,24 @@ export function LiveGameTab({ players }) {
   const [lastSynced, setLastSynced] = useState(null);
   const [myLabel, setMyLabel] = useState("Coach");
   const [messageDraft, setMessageDraft] = useState("");
+  const [pendingShot, setPendingShot] = useState(null);
+  const [chartScope, setChartScope] = useState("player");
   const [, setTick] = useState(0);
+
+  // Latest game and code, readable synchronously so updates never act on stale state.
+  const gameRef = useRef(null);
+  const codeRef = useRef("");
+  const pendingSaves = useRef(0);
+
+  const applyGame = (g) => {
+    gameRef.current = g;
+    setGame(g);
+  };
+  const applyCode = (c) => {
+    codeRef.current = c;
+    setCode(c);
+    writeSavedCode(c);
+  };
 
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 10000);
@@ -77,20 +117,28 @@ export function LiveGameTab({ players }) {
   }, []);
 
   const saveGame = async (nextGame, c) => {
+    pendingSaves.current += 1;
     try {
-      await saveGameRemote(c || code, nextGame);
+      await saveGameRemote(c || codeRef.current, nextGame);
+      setLastSynced(new Date());
+      setStatus((s) => (s.startsWith("Couldn't sync") ? "" : s));
     } catch (e) {
       setStatus("Couldn't sync that update — check your connection.");
+    } finally {
+      pendingSaves.current -= 1;
     }
   };
 
   const pullGame = async (c) => {
+    // A refresh that starts mid-save would bring back the pre-tap copy.
+    if (pendingSaves.current > 0) return;
     try {
       const remote = await fetchGame(c);
-      if (remote) {
-        setGame(remote);
-        setLastSynced(new Date());
-      }
+      if (!remote || c !== codeRef.current || pendingSaves.current > 0) return;
+      const local = gameRef.current;
+      if (local && (remote.updatedAt || 0) < (local.updatedAt || 0)) return;
+      applyGame(normalizeGame(remote));
+      setLastSynced(new Date());
     } catch (e) {
       /* transient network hiccup while polling — ignore */
     }
@@ -106,41 +154,66 @@ export function LiveGameTab({ players }) {
       oppScore: 0,
       players: source.map((p) => ({ id: p.id, name: p.name, ...emptyStats() })),
       messages: [],
+      shots: [],
+      startedAt: Date.now(),
       updatedAt: Date.now(),
     };
     setStatus("");
-    setCode(c);
-    setGame(initial);
+    applyCode(c);
+    applyGame(initial);
     setSelectedPlayerId(initial.players[0] ? initial.players[0].id : null);
     await saveGame(initial, c);
   };
 
-  const joinGame = async () => {
-    const c = codeInput.trim().toUpperCase();
+  const joinCode = async (raw, { silent } = {}) => {
+    const c = raw.trim().toUpperCase();
     if (!c) return;
-    setStatus("Joining…");
+    if (!silent) setStatus("Joining…");
     try {
       const remote = await fetchGame(c);
       if (remote) {
-        if (!remote.messages) remote.messages = [];
-        setCode(c);
-        setGame(remote);
-        setSelectedPlayerId(remote.players[0] ? remote.players[0].id : null);
+        const g = normalizeGame(remote);
+        applyCode(c);
+        applyGame(g);
+        setSelectedPlayerId(g.players[0] ? g.players[0].id : null);
         setLastSynced(new Date());
         setStatus("");
       } else {
-        setStatus("Game not found — double-check the code.");
+        if (silent) writeSavedCode("");
+        setStatus(silent ? "" : "Game not found — double-check the code.");
       }
     } catch (e) {
-      setStatus("Couldn't reach the game — check your connection and try again.");
+      setStatus(silent ? `Couldn't reconnect to game ${c} — tap Join to retry.` : "Couldn't reach the game — check your connection and try again.");
+      if (silent) setCodeInput(c);
     }
+  };
+  const joinGame = () => joinCode(codeInput);
+
+  // Resume the game this tablet was in before a reload.
+  useEffect(() => {
+    const saved = readSavedCode();
+    if (saved) joinCode(saved, { silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const resetLocal = () => {
+    applyCode("");
+    applyGame(null);
+    setSelectedPlayerId(null);
+    setPendingShot(null);
+    setStatus("");
   };
 
   const leaveGame = () => {
-    setCode("");
-    setGame(null);
-    setSelectedPlayerId(null);
-    setStatus("");
+    if (!window.confirm(`Leave game ${code}? You can rejoin later with the code.`)) return;
+    resetLocal();
+  };
+
+  const endGame = () => {
+    if (!window.confirm("End this game and save the stats and shot chart to Review?")) return;
+    const g = gameRef.current;
+    if (g && onEndGame) onEndGame({ ...g, code: codeRef.current, endedAt: Date.now() });
+    resetLocal();
   };
 
   useEffect(() => {
@@ -151,11 +224,11 @@ export function LiveGameTab({ players }) {
   }, [code]);
 
   const updateGame = (fn) => {
-    setGame((g) => {
-      const next = { ...fn(g), updatedAt: Date.now() };
-      saveGame(next);
-      return next;
-    });
+    const current = gameRef.current;
+    if (!current) return;
+    const next = { ...fn(current), updatedAt: Date.now() };
+    applyGame(next);
+    saveGame(next);
   };
 
   const addTeamScore = (n) => updateGame((g) => ({ ...g, usScore: Math.max(0, g.usScore + n) }));
@@ -167,18 +240,58 @@ export function LiveGameTab({ players }) {
     }));
   };
 
-  const logShot = (playerId, points, made) => {
-    updateGame((g) => ({
-      ...g,
-      usScore: made ? Math.max(0, g.usScore + points) : g.usScore,
-      players: g.players.map((p) => {
-        if (p.id !== playerId) return p;
-        if (points === 1) {
-          return { ...p, ftm: (p.ftm || 0) + (made ? 1 : 0), fta: (p.fta || 0) + 1, pts: made ? p.pts + 1 : p.pts };
-        }
-        return { ...p, fgm: (p.fgm || 0) + (made ? 1 : 0), fga: (p.fga || 0) + 1, pts: made ? p.pts + points : p.pts };
-      }),
-    }));
+  const applyShotStats = (p, points, made, sign) => {
+    const m = made ? sign : 0;
+    if (points === 1) {
+      return { ...p, ftm: Math.max(0, (p.ftm || 0) + m), fta: Math.max(0, (p.fta || 0) + sign), pts: Math.max(0, p.pts + m) };
+    }
+    return { ...p, fgm: Math.max(0, (p.fgm || 0) + m), fga: Math.max(0, (p.fga || 0) + sign), pts: Math.max(0, p.pts + m * points) };
+  };
+
+  // loc is { x, y } on the court, or null when the coach skips placing it.
+  const logShot = (playerId, points, made, loc) => {
+    updateGame((g) => {
+      const shots = g.shots || [];
+      const spot = points === 1 ? freeThrowSpot(shots.filter((s) => s.playerId === playerId && s.pts === 1).length) : loc;
+      const shot = {
+        id: syncId(), playerId, pts: points, made,
+        x: spot ? spot.x : null, y: spot ? spot.y : null, t: Date.now(),
+      };
+      return {
+        ...g,
+        usScore: made ? Math.max(0, g.usScore + points) : g.usScore,
+        players: g.players.map((p) => (p.id === playerId ? applyShotStats(p, points, made, 1) : p)),
+        shots: [...shots, shot],
+      };
+    });
+  };
+
+  const undoLastShot = (playerId) => {
+    updateGame((g) => {
+      const shots = g.shots || [];
+      let idx = -1;
+      for (let i = shots.length - 1; i >= 0; i--) {
+        if (shots[i].playerId === playerId) { idx = i; break; }
+      }
+      if (idx === -1) return g;
+      const last = shots[idx];
+      return {
+        ...g,
+        usScore: last.made ? Math.max(0, g.usScore - last.pts) : g.usScore,
+        players: g.players.map((p) => (p.id === playerId ? applyShotStats(p, last.pts, last.made, -1) : p)),
+        shots: shots.filter((_, i) => i !== idx),
+      };
+    });
+  };
+
+  const requestShot = (playerId, points, made) => {
+    if (points === 1) logShot(playerId, 1, made, null);
+    else setPendingShot({ playerId, pts: points, made });
+  };
+  const finishShot = (loc) => {
+    if (!pendingShot) return;
+    logShot(pendingShot.playerId, pendingShot.pts, pendingShot.made, loc);
+    setPendingShot(null);
   };
 
   const toggleCourt = (playerId) => {
@@ -199,13 +312,16 @@ export function LiveGameTab({ players }) {
     if (!text.trim()) return;
     updateGame((g) => ({
       ...g,
-      messages: [...(g.messages || []), { id: uid(), text: text.trim(), from: myLabel || "Coach", time: Date.now() }].slice(-30),
+      messages: [...(g.messages || []), { id: syncId(), text: text.trim(), from: myLabel || "Coach", time: Date.now() }].slice(-30),
     }));
     setMessageDraft("");
   };
 
   const subtitle = code ? `Game code ${code} · shared with your assistant coach` : "Track score and player stats, synced across coaches' tablets";
   const selectedPlayer = game ? game.players.find((p) => p.id === selectedPlayerId) : null;
+  const allShots = game ? game.shots || [] : [];
+  const chartShots = chartScope === "team" || !selectedPlayer ? allShots : allShots.filter((s) => s.playerId === selectedPlayer.id);
+  const selectedHasShots = selectedPlayer ? allShots.some((s) => s.playerId === selectedPlayer.id) : false;
 
   return (
     <Panel icon={Radio} title="Live Game" subtitle={subtitle}>
@@ -270,7 +386,17 @@ export function LiveGameTab({ players }) {
                 {lastSynced ? `Synced ${lastSynced.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : "Not yet synced"}
               </div>
             </div>
-            <div style={{ display: "flex", gap: 6 }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <button
+                onClick={endGame}
+                style={{
+                  display: "flex", alignItems: "center", gap: 5, height: 30, padding: "0 10px", borderRadius: 7,
+                  border: `1px solid ${C.amberDim}`, background: "transparent", color: C.amber,
+                  fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer",
+                }}
+              >
+                <Flag size={13} /> End game
+              </button>
               <IconBtn onClick={() => pullGame(code)}><RefreshCw size={14} /></IconBtn>
               <IconBtn onClick={leaveGame} danger><LogOut size={14} /></IconBtn>
             </div>
@@ -369,7 +495,7 @@ export function LiveGameTab({ players }) {
             </div>
 
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-              {["Timeout!", "Foul trouble", "Pull him", "Sub now", "Nice adjustment"].map((preset) => (
+              {["Timeout!", "Foul trouble", "Sub out", "Sub now", "Nice adjustment"].map((preset) => (
                 <button
                   key={preset}
                   onClick={() => sendMessage(preset)}
@@ -483,12 +609,19 @@ export function LiveGameTab({ players }) {
 
                   <SubHeading>Shooting</SubHeading>
                   <div style={{ display: "flex", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                    <button onClick={() => logShot(selectedPlayer.id, 2, true)} style={shotBtnStyle(C.sage)}>+2 Make</button>
-                    <button onClick={() => logShot(selectedPlayer.id, 2, false)} style={shotBtnStyle(C.chalkDim)}>2 Miss</button>
-                    <button onClick={() => logShot(selectedPlayer.id, 3, true)} style={shotBtnStyle(C.amber)}>+3 Make</button>
-                    <button onClick={() => logShot(selectedPlayer.id, 3, false)} style={shotBtnStyle(C.chalkDim)}>3 Miss</button>
-                    <button onClick={() => logShot(selectedPlayer.id, 1, true)} style={shotBtnStyle(C.sage)}>+1 FT Make</button>
-                    <button onClick={() => logShot(selectedPlayer.id, 1, false)} style={shotBtnStyle(C.chalkDim)}>FT Miss</button>
+                    <button onClick={() => requestShot(selectedPlayer.id, 2, true)} style={shotBtnStyle(C.sage)}>+2 Make</button>
+                    <button onClick={() => requestShot(selectedPlayer.id, 2, false)} style={shotBtnStyle(C.chalkDim)}>2 Miss</button>
+                    <button onClick={() => requestShot(selectedPlayer.id, 3, true)} style={shotBtnStyle(C.amber)}>+3 Make</button>
+                    <button onClick={() => requestShot(selectedPlayer.id, 3, false)} style={shotBtnStyle(C.chalkDim)}>3 Miss</button>
+                    <button onClick={() => requestShot(selectedPlayer.id, 1, true)} style={shotBtnStyle(C.sage)}>+1 FT Make</button>
+                    <button onClick={() => requestShot(selectedPlayer.id, 1, false)} style={shotBtnStyle(C.chalkDim)}>FT Miss</button>
+                    <button
+                      onClick={() => undoLastShot(selectedPlayer.id)}
+                      disabled={!selectedHasShots}
+                      style={{ ...shotBtnStyle(C.chalkDim), display: "flex", alignItems: "center", gap: 4, opacity: selectedHasShots ? 1 : 0.4, cursor: selectedHasShots ? "pointer" : "default" }}
+                    >
+                      <Undo2 size={12} /> Undo shot
+                    </button>
                   </div>
                   <p style={{ fontFamily: "'Space Mono', monospace", fontSize: 11, color: C.chalkDim, margin: "0 0 14px" }}>
                     FG {selectedPlayer.fgm}/{selectedPlayer.fga} · FT {selectedPlayer.ftm}/{selectedPlayer.fta}
@@ -513,7 +646,43 @@ export function LiveGameTab({ players }) {
                   </div>
                 </div>
               )}
+
+              <div style={{ marginTop: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <SubHeading>Shot Chart</SubHeading>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {[["player", selectedPlayer ? selectedPlayer.name : "Player"], ["team", "Team"]].map(([key, label]) => (
+                      <button
+                        key={key}
+                        onClick={() => setChartScope(key)}
+                        style={{
+                          padding: "4px 10px", borderRadius: 999, border: `1px solid ${chartScope === key ? C.amber : C.line}`,
+                          background: chartScope === key ? C.amber : "transparent", color: chartScope === key ? C.amberInk : C.chalkDim,
+                          fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 11, cursor: "pointer",
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="np-court-cap">
+                  <Court shots={chartShots} />
+                  <ShotLegend />
+                  <ShotLine shots={chartShots} />
+                </div>
+              </div>
             </>
+          )}
+
+          {pendingShot && (
+            <ShotLocationPicker
+              request={pendingShot}
+              playerName={(game.players.find((p) => p.id === pendingShot.playerId) || {}).name || ""}
+              onPick={finishShot}
+              onSkip={() => finishShot(null)}
+              onCancel={() => setPendingShot(null)}
+            />
           )}
         </>
       )}
